@@ -25,9 +25,7 @@ dependencyResolutionManagement {
             library("compose-ripple", "androidx.compose.material", "material-ripple").versionRef("compose")
 
             library("compose-shimmer", "com.valentinilk.shimmer", "compose-shimmer").version("1.0.3")
-
             library("compose-activity", "androidx.activity", "activity-compose").version("1.7.0-alpha01")
-
             library("compose-coil", "io.coil-kt", "coil-compose").version("2.2.2")
 
             version("room", "2.5.0-beta01")
@@ -46,9 +44,7 @@ dependencyResolutionManagement {
             library("ktor-serialization-json", "io.ktor", "ktor-serialization-kotlinx-json").versionRef("ktor")
 
             library("brotli", "org.brotli", "dec").version("0.1.2")
-
             library("palette", "androidx.palette", "palette").version("1.0.0")
-
             library("desugaring", "com.android.tools", "desugar_jdk_libs").version("1.1.5")
         }
 

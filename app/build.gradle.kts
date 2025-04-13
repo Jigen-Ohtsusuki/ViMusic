@@ -13,6 +13,8 @@ android {
         targetSdk = 33
         versionCode = 20
         versionName = "0.5.4"
+
+        base.archivesName.set("vimusic")
     }
 
     splits {
@@ -39,33 +41,48 @@ android {
         }
     }
 
-    sourceSets.all {
-        kotlin.srcDir("src/$name/kotlin")
+    sourceSets {
+        named("main") {
+            kotlin.srcDirs("src/main/kotlin")
+        }
+        named("debug") {
+            kotlin.srcDirs("src/debug/kotlin")
+        }
+        named("release") {
+            kotlin.srcDirs("src/release/kotlin")
+        }
     }
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     compileOptions {
         isCoreLibraryDesugaringEnabled = true
-        sourceCompatibility = JavaVersion.VERSION_1_8
-        targetCompatibility = JavaVersion.VERSION_1_8
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
     }
 
     composeOptions {
         kotlinCompilerExtensionVersion = libs.versions.compose.compiler.get()
     }
 
-    kotlinOptions {
-        freeCompilerArgs += "-Xcontext-receivers"
-        jvmTarget = "1.8"
+    kotlin {
+        jvmToolchain(17)
+    }
+
+    lint {
+        abortOnError = false
+        checkReleaseBuilds = true
+        baseline = file("lint-baseline.xml")
+        disable += setOf("ImpliedTouchscreenHardware")
     }
 }
 
 kapt {
     arguments {
-        arg("room.schemaLocation", "$projectDir/schemas")
+        arg("room.schemaLocation", layout.projectDirectory.dir("schemas").asFile.absolutePath)
     }
 }
 
@@ -83,7 +100,6 @@ dependencies {
     implementation(libs.compose.coil)
 
     implementation(libs.palette)
-
     implementation(libs.exoplayer)
 
     implementation(libs.room)
@@ -93,4 +109,11 @@ dependencies {
     implementation(projects.kugou)
 
     coreLibraryDesugaring(libs.desugaring)
+}
+
+tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
+    kotlinOptions {
+        freeCompilerArgs += "-Xcontext-receivers"
+        jvmTarget = "17"
+    }
 }

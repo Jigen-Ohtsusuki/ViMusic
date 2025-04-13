@@ -9,7 +9,7 @@ android {
 
     defaultConfig {
         minSdk = 21
-        targetSdk = 33
+        base.archivesName.set("compose-persist")
     }
 
     buildTypes {
@@ -19,28 +19,43 @@ android {
         }
     }
 
-    sourceSets.all {
-        kotlin.srcDir("src/$name/kotlin")
+    sourceSets {
+        named("main") {
+            kotlin.srcDirs("src/main/kotlin")
+        }
+        named("release") {
+            kotlin.srcDirs("src/release/kotlin")
+        }
+        named("debug") {
+            kotlin.srcDirs("src/debug/kotlin")
+        }
     }
 
     buildFeatures {
         compose = true
+        buildConfig = false
     }
 
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_1_8
-        targetCompatibility = JavaVersion.VERSION_1_8
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
     }
 
     composeOptions {
         kotlinCompilerExtensionVersion = libs.versions.compose.compiler.get()
     }
 
-    kotlinOptions {
-        jvmTarget = "1.8"
+    kotlin {
+        jvmToolchain(17)
     }
 }
 
 dependencies {
     implementation(libs.compose.foundation)
+}
+
+tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
+    kotlinOptions {
+        jvmTarget = "17"
+    }
 }

@@ -1,6 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
+    <!-- Features -->
+    <uses-feature
+        android:name="android.hardware.touchscreen"
+        android:required="false" />
+
+    <!-- Permissions -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
@@ -41,9 +47,14 @@
                 <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
             </intent-filter>
 
+            <!-- Add support for voice search -->
+            <intent-filter>
+                <action android:name="android.media.action.MEDIA_PLAY_FROM_SEARCH" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
-
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
 
@@ -94,13 +105,20 @@
             android:name=".service.PlayerService"
             android:exported="false"
             android:foregroundServiceType="mediaPlayback">
+            <!-- Add support for voice search in the service -->
+            <intent-filter>
+                <action android:name="android.media.action.MEDIA_PLAY_FROM_SEARCH" />
+            </intent-filter>
         </service>
 
-        <service android:name=".service.PlayerMediaBrowserService"
+        <service
+            android:name=".service.PlayerMediaBrowserService"
             android:exported="true"
             android:enabled="false">
             <intent-filter>
                 <action android:name="android.media.browse.MediaBrowserService"/>
+                <!-- Add support for voice search in the MediaBrowserService -->
+                <action android:name="android.media.action.MEDIA_PLAY_FROM_SEARCH" />
             </intent-filter>
         </service>
 
@@ -108,10 +126,12 @@
             android:name=".service.PlayerService$NotificationDismissReceiver"
             android:exported="false" />
 
-        <meta-data android:name="com.google.android.gms.car.application"
+        <meta-data
+            android:name="com.google.android.gms.car.application"
             android:resource="@xml/automotive_app_desc"/>
 
-        <meta-data android:name="com.google.android.gms.car.notification.SmallIcon"
+        <meta-data
+            android:name="com.google.android.gms.car.notification.SmallIcon"
             android:resource="@drawable/app_icon" />
 
     </application>
