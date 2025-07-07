@@ -600,6 +600,9 @@ interface Database {
     @Query("SELECT id, name FROM Artist LEFT JOIN SongArtistMap ON id = artistId WHERE songId = :songId")
     suspend fun songArtistInfo(songId: String): List<Info>
 
+    @Query("SELECT * FROM Song WHERE title LIKE :title AND artistsText LIKE :artist LIMIT 1")
+    fun searchByTitleAndArtist(title: String, artist: String): Song?
+
     @Transaction
     @Query(
         """

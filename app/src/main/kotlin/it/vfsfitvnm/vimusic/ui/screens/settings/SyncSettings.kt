@@ -1,5 +1,17 @@
 package it.vfsfitvnm.vimusic.ui.screens.settings
 
+import android.content.Context
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import android.widget.EditText
+import android.app.AlertDialog
+import android.text.InputType
+import android.util.Log
+import android.widget.Toast
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import androidx.compose.material3.Button
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -34,6 +46,8 @@ import it.vfsfitvnm.vimusic.Database
 import it.vfsfitvnm.vimusic.LocalCredentialManager
 import it.vfsfitvnm.vimusic.R
 import it.vfsfitvnm.vimusic.models.PipedSession
+import it.vfsfitvnm.vimusic.models.Playlist
+import it.vfsfitvnm.vimusic.models.SongPlaylistMap
 import it.vfsfitvnm.vimusic.transaction
 import it.vfsfitvnm.vimusic.ui.components.themed.CircularProgressIndicator
 import it.vfsfitvnm.vimusic.ui.components.themed.ConfirmationDialog
@@ -54,6 +68,7 @@ import it.vfsfitvnm.providers.piped.models.Instance
 import io.ktor.http.Url
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.firstOrNull
 
 @Route
 @Composable
@@ -65,6 +80,33 @@ fun SyncSettings(
     val (colorPalette, typography) = LocalAppearance.current
     val uriHandler = LocalUriHandler.current
     val context = LocalContext.current
+
+    // Add the launcher for CSV file selection
+    val launcher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument(),
+        onResult = { uri ->
+            uri?.let {
+                coroutineScope.launch {
+                    val songs = readCsvFromUri(context, uri)
+
+                    if (songs.isEmpty()) {
+                        Toast.makeText(context, "No songs found in CSV!", Toast.LENGTH_SHORT).show()
+                        return@launch
+                    }
+
+                    showPlaylistNameDialog(
+                        context = context,
+                        onNameEntered = { playlistName ->
+                            coroutineScope.launch {
+                                importSongsToPlaylist(playlistName, songs)
+                            }
+                        }
+                    )
+                }
+            }
+        }
+    )
+
 
     val pipedSessions by Database.pipedSessions().collectAsState(initial = listOf())
 
@@ -98,6 +140,21 @@ fun SyncSettings(
                 if (backgroundLoading) CircularProgressIndicator(modifier = Modifier.align(Alignment.TopEnd))
 
                 Column(modifier = Modifier.fillMaxWidth()) {
+                    // Add a button to trigger CSV file selection
+                    Button(
+                        onClick = {
+                            launcher.launch(arrayOf("text/csv")) // Launch file picker for CSV files
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 8.dp)
+                    ) {
+                        BasicText(
+                            text = stringResource(R.string.select_csv_file),
+                            style = typography.s.semiBold
+                        )
+                    }
+
                     var instances by persistList<Instance>(tag = "settings/sync/piped/instances")
                     var loadingInstances by rememberSaveable { mutableStateOf(true) }
                     var selectedInstance: Int? by rememberSaveable { mutableStateOf(null) }
@@ -302,5 +359,83 @@ fun SyncSettings(
                 )
             }
         }
+        SettingsGroup(title = "Playlist Tools") {
+            SettingsEntry(
+                title = "Import Playlist from CSV",
+                text = "Import a local playlist backup in CSV format.",
+                onClick = {
+                    // Launch file picker here
+                    launcher.launch(arrayOf("text/csv"))
+                }
+            )
+        }
     }
 }
+
+fun readCsvFromUri(context: Context, uri: Uri): List<Pair<String, String>> {
+    val songs = mutableListOf<Pair<String, String>>()
+
+    context.contentResolver.openInputStream(uri)?.bufferedReader()?.useLines { lines ->
+        lines.drop(1).forEach { line ->
+            val columns = line.split(",")
+            if (columns.size >= 3) {
+                val title = columns[1].trim().replace("\"", "")
+                val artist = columns[2].trim().replace("\"", "")
+                songs.add(title to artist)
+            }
+        }
+    }
+
+    return songs
+}
+
+
+fun showPlaylistNameDialog(
+    context: Context,
+    onNameEntered: (String) -> Unit
+) {
+    val input = EditText(context).apply {
+        hint = "Enter playlist name"
+        inputType = InputType.TYPE_CLASS_TEXT
+    }
+
+    AlertDialog.Builder(context)
+        .setTitle("Create Playlist")
+        .setView(input)
+        .setPositiveButton("Create") { _, _ ->
+            val name = input.text.toString().trim()
+            if (name.isNotEmpty()) {
+                onNameEntered(name)
+            } else {
+                Toast.makeText(context, "Name cannot be empty", Toast.LENGTH_SHORT).show()
+            }
+        }
+        .setNegativeButton("Cancel", null)
+        .show()
+}
+
+suspend fun importSongsToPlaylist(playlistName: String, songs: List<Pair<String, String>>) {
+    withContext(Dispatchers.IO) {
+        val playlistId = Database.insert(Playlist(name = playlistName))
+
+        songs.forEachIndexed { index, (title, artist) ->
+            val matchedSong = Database.searchByTitleAndArtist("%$title%", "%$artist%")
+
+            if (matchedSong != null) {
+                Log.d("CSV_IMPORT", "✅ Matched: ${matchedSong.title} - ${matchedSong.artistsText}")
+                Database.insert(
+                    SongPlaylistMap(
+                        songId = matchedSong.id,
+                        playlistId = playlistId,
+                        position = index
+                    )
+                )
+            } else {
+                Log.e("CSV_IMPORT", "❌ No match: $title - $artist")
+            }
+        }
+    }
+}
+
+
+
