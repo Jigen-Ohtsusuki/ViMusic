@@ -22,61 +22,41 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import it.vfsfitvnm.compose.persist.persist
+import it.vfsfitvnm.compose.persist.persistList
+import it.vfsfitvnm.core.ui.LocalAppearance
+import it.vfsfitvnm.providers.innertube.models.YTItem
 import it.vfsfitvnm.vimusic.LocalPlayerAwareWindowInsets
 import it.vfsfitvnm.vimusic.R
 import it.vfsfitvnm.vimusic.ui.components.ShimmerHost
 import it.vfsfitvnm.vimusic.ui.components.themed.FloatingActionsContainerWithScrollToTop
 import it.vfsfitvnm.vimusic.utils.center
 import it.vfsfitvnm.vimusic.utils.secondary
-import it.vfsfitvnm.compose.persist.persist
-import it.vfsfitvnm.core.ui.LocalAppearance
-import it.vfsfitvnm.providers.innertube.Innertube
-import it.vfsfitvnm.providers.innertube.utils.plus
+import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-@Composable
-inline fun <T : Innertube.Item> ItemsPage(
-    tag: String,
-    crossinline header: @Composable (textButton: (@Composable () -> Unit)?) -> Unit,
-    crossinline itemContent: @Composable LazyItemScope.(T) -> Unit,
-    noinline itemPlaceholderContent: @Composable () -> Unit,
-    modifier: Modifier = Modifier,
-    initialPlaceholderCount: Int = 8,
-    continuationPlaceholderCount: Int = 3,
-    emptyItemsText: String = stringResource(R.string.no_items_found),
-    noinline provider: (suspend (String?) -> Result<Innertube.ItemsPage<T>?>?)? = null
-) = ItemsPage(
-    tag = tag,
-    header = { before, _ -> header(before) },
-    itemContent = itemContent,
-    itemPlaceholderContent = itemPlaceholderContent,
-    modifier = modifier,
-    initialPlaceholderCount = initialPlaceholderCount,
-    continuationPlaceholderCount = continuationPlaceholderCount,
-    emptyItemsText = emptyItemsText,
-    provider = provider
-)
+typealias ItemsProvider<T> = suspend (continuation: String?) -> Pair<List<T>, String?>?
 
 @Composable
-inline fun <T : Innertube.Item> ItemsPage(
+fun <T : YTItem> ItemsPage(
     tag: String,
-    crossinline header: @Composable (
-        beforeContent: (@Composable () -> Unit)?,
-        afterContent: (@Composable () -> Unit)?
-    ) -> Unit,
-    crossinline itemContent: @Composable LazyItemScope.(T) -> Unit,
-    noinline itemPlaceholderContent: @Composable () -> Unit,
+    header: @Composable (textButton: (@Composable () -> Unit)?) -> Unit,
+    itemContent: @Composable LazyItemScope.(T) -> Unit,
+    itemPlaceholderContent: @Composable () -> Unit,
     modifier: Modifier = Modifier,
     initialPlaceholderCount: Int = 8,
     continuationPlaceholderCount: Int = 3,
     emptyItemsText: String = stringResource(R.string.no_items_found),
-    noinline provider: (suspend (String?) -> Result<Innertube.ItemsPage<T>?>?)? = null
+    provider: ItemsProvider<T>? = null
 ) {
     val (_, typography) = LocalAppearance.current
     val updatedProvider by rememberUpdatedState(provider)
     val lazyListState = rememberLazyListState()
-    var itemsPage by persist<Innertube.ItemsPage<T>?>(tag)
+
+    var items by persistList<T>("$tag/items")
+    var continuation by persist<String?>("$tag/continuation")
+    var isInitialized by persist("$tag/isInitialized", false)
 
     val shouldLoad by remember {
         derivedStateOf {
@@ -85,18 +65,16 @@ inline fun <T : Innertube.Item> ItemsPage(
     }
 
     LaunchedEffect(shouldLoad, updatedProvider) {
-        if (!shouldLoad) return@LaunchedEffect
+        if (!shouldLoad || (continuation == null && isInitialized)) return@LaunchedEffect
         val provideItems = updatedProvider ?: return@LaunchedEffect
 
         withContext(Dispatchers.IO) {
-            provideItems(itemsPage?.continuation)
-        }?.onSuccess {
-            if (it == null) {
-                if (itemsPage == null) itemsPage = Innertube.ItemsPage(null, null)
-            } else itemsPage += it
-        }?.onFailure {
-            itemsPage = itemsPage?.copy(continuation = null)
-        }?.exceptionOrNull()?.printStackTrace()
+            provideItems(continuation)
+        }?.let { (newItems, newContinuation) ->
+            items = (items + newItems).toImmutableList()
+            continuation = newContinuation
+            isInitialized = true
+        }
     }
 
     Box(modifier = modifier) {
@@ -111,16 +89,16 @@ inline fun <T : Innertube.Item> ItemsPage(
                 key = "header",
                 contentType = "header"
             ) {
-                header(null, null)
+                header(null)
             }
 
             items(
-                items = itemsPage?.items ?: emptyList(),
-                key = Innertube.Item::key,
+                items = items,
+                key = { it.id },
                 itemContent = itemContent
             )
 
-            if (itemsPage != null && itemsPage?.items.isNullOrEmpty()) item(key = "empty") {
+            if (isInitialized && items.isEmpty()) item(key = "empty") {
                 BasicText(
                     text = emptyItemsText,
                     style = typography.xs.secondary.center,
@@ -130,8 +108,8 @@ inline fun <T : Innertube.Item> ItemsPage(
                 )
             }
 
-            if (!(itemsPage != null && itemsPage?.continuation == null)) item(key = "loading") {
-                val isFirstLoad = itemsPage?.items.isNullOrEmpty()
+            if (continuation != null || !isInitialized) item(key = "loading") {
+                val isFirstLoad = !isInitialized
 
                 ShimmerHost(
                     modifier = if (isFirstLoad) Modifier.fillParentMaxSize() else Modifier

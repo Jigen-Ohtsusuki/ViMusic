@@ -24,43 +24,32 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.core.net.toUri
+import androidx.media3.common.MediaItem
+import androidx.media3.common.MediaMetadata
+import com.valentinilk.shimmer.shimmer
+import it.vfsfitvnm.compose.persist.persist
+import it.vfsfitvnm.core.ui.Dimensions
+import it.vfsfitvnm.core.ui.LocalAppearance
+import it.vfsfitvnm.core.ui.utils.isLandscape
+import it.vfsfitvnm.providers.innertube.YouTube
+import it.vfsfitvnm.providers.innertube.models.SongItem as InnertubeSongItem
+import it.vfsfitvnm.providers.innertube.requests.PlaylistPage
 import it.vfsfitvnm.vimusic.Database
 import it.vfsfitvnm.vimusic.LocalPlayerAwareWindowInsets
 import it.vfsfitvnm.vimusic.LocalPlayerServiceBinder
 import it.vfsfitvnm.vimusic.R
 import it.vfsfitvnm.vimusic.models.Playlist
+import it.vfsfitvnm.vimusic.models.Song
 import it.vfsfitvnm.vimusic.models.SongPlaylistMap
 import it.vfsfitvnm.vimusic.query
 import it.vfsfitvnm.vimusic.transaction
 import it.vfsfitvnm.vimusic.ui.components.LocalMenuState
 import it.vfsfitvnm.vimusic.ui.components.ShimmerHost
-import it.vfsfitvnm.vimusic.ui.components.themed.FloatingActionsContainerWithScrollToTop
-import it.vfsfitvnm.vimusic.ui.components.themed.Header
-import it.vfsfitvnm.vimusic.ui.components.themed.HeaderIconButton
-import it.vfsfitvnm.vimusic.ui.components.themed.HeaderPlaceholder
-import it.vfsfitvnm.vimusic.ui.components.themed.LayoutWithAdaptiveThumbnail
-import it.vfsfitvnm.vimusic.ui.components.themed.NonQueuedMediaItemMenu
-import it.vfsfitvnm.vimusic.ui.components.themed.PlaylistInfo
-import it.vfsfitvnm.vimusic.ui.components.themed.SecondaryTextButton
-import it.vfsfitvnm.vimusic.ui.components.themed.TextFieldDialog
-import it.vfsfitvnm.vimusic.ui.components.themed.adaptiveThumbnailContent
+import it.vfsfitvnm.vimusic.ui.components.themed.*
 import it.vfsfitvnm.vimusic.ui.items.SongItem
 import it.vfsfitvnm.vimusic.ui.items.SongItemPlaceholder
-import it.vfsfitvnm.vimusic.utils.PlaylistDownloadIcon
-import it.vfsfitvnm.vimusic.utils.asMediaItem
-import it.vfsfitvnm.vimusic.utils.completed
-import it.vfsfitvnm.vimusic.utils.enqueue
-import it.vfsfitvnm.vimusic.utils.forcePlayAtIndex
-import it.vfsfitvnm.vimusic.utils.forcePlayFromBeginning
-import it.vfsfitvnm.vimusic.utils.playingSong
-import it.vfsfitvnm.compose.persist.persist
-import it.vfsfitvnm.core.ui.Dimensions
-import it.vfsfitvnm.core.ui.LocalAppearance
-import it.vfsfitvnm.core.ui.utils.isLandscape
-import it.vfsfitvnm.providers.innertube.Innertube
-import it.vfsfitvnm.providers.innertube.models.bodies.BrowseBody
-import it.vfsfitvnm.providers.innertube.requests.playlistPage
-import com.valentinilk.shimmer.shimmer
+import it.vfsfitvnm.vimusic.utils.*
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -69,29 +58,26 @@ import kotlinx.coroutines.withContext
 @Composable
 fun PlaylistSongList(
     browseId: String,
-    params: String?,
-    maxDepth: Int?,
-    shouldDedup: Boolean,
-    modifier: Modifier = Modifier
-) {
+    modifier: Modifier = Modifier,
+    params: String? = null,
+    maxDepth: Int? = null,
+    shouldDedup: Boolean = false,
+)
+ {
     val (colorPalette) = LocalAppearance.current
     val binder = LocalPlayerServiceBinder.current
     val context = LocalContext.current
     val menuState = LocalMenuState.current
 
-    var playlistPage by persist<Innertube.PlaylistOrAlbumPage?>("playlist/$browseId/playlistPage")
+    var playlistPage by persist<PlaylistPage?>("playlist/$browseId/playlistPage")
 
     LaunchedEffect(Unit) {
-        if (playlistPage != null && playlistPage?.songsPage?.continuation == null) return@LaunchedEffect
+        if (playlistPage?.songsContinuation == null) return@LaunchedEffect
 
-        playlistPage = withContext(Dispatchers.IO) {
-            Innertube
-                .playlistPage(BrowseBody(browseId = browseId, params = params))
-                ?.completed(
-                    maxDepth = maxDepth ?: Int.MAX_VALUE,
-                    shouldDedup = shouldDedup
-                )
-                ?.getOrNull()
+        withContext(Dispatchers.IO) {
+            YouTube.playlist(browseId)
+        }.onSuccess {
+            playlistPage = it
         }
     }
 
@@ -99,7 +85,7 @@ fun PlaylistSongList(
 
     if (isImportingPlaylist) TextFieldDialog(
         hintText = stringResource(R.string.enter_playlist_name_prompt),
-        initialTextInput = playlistPage?.title.orEmpty(),
+        initialTextInput = playlistPage?.playlist?.title.orEmpty(),
         onDismiss = { isImportingPlaylist = false },
         onAccept = { text ->
             query {
@@ -108,16 +94,16 @@ fun PlaylistSongList(
                         Playlist(
                             name = text,
                             browseId = browseId,
-                            thumbnail = playlistPage?.thumbnail?.url
+                            thumbnail = playlistPage?.playlist?.thumbnail
                         )
                     )
 
-                    playlistPage?.songsPage?.items
-                        ?.map(Innertube.SongItem::asMediaItem)
-                        ?.onEach(Database.instance::insert)
-                        ?.mapIndexed { index, mediaItem ->
+                    playlistPage?.songs
+                        ?.map { it.toLocalSong() }
+                        ?.onEach { song -> Database.instance.insert(song) }
+                        ?.mapIndexed { index, localSong ->
                             SongPlaylistMap(
-                                songId = mediaItem.mediaId,
+                                songId = localSong.id,
                                 playlistId = playlistId,
                                 position = index
                             )
@@ -129,12 +115,12 @@ fun PlaylistSongList(
 
     val headerContent: @Composable () -> Unit = {
         if (playlistPage == null) HeaderPlaceholder(modifier = Modifier.shimmer())
-        else Header(title = playlistPage?.title ?: stringResource(R.string.unknown)) {
+        else Header(title = playlistPage?.playlist?.title ?: stringResource(R.string.unknown)) {
             SecondaryTextButton(
                 text = stringResource(R.string.enqueue),
-                enabled = playlistPage?.songsPage?.items?.isNotEmpty() == true,
+                enabled = !playlistPage?.songs.isNullOrEmpty(),
                 onClick = {
-                    playlistPage?.songsPage?.items?.map(Innertube.SongItem::asMediaItem)
+                    playlistPage?.songs?.map(InnertubeSongItem::asMediaItem)
                         ?.let { mediaItems ->
                             binder?.player?.enqueue(mediaItems)
                         }
@@ -143,7 +129,7 @@ fun PlaylistSongList(
 
             Spacer(modifier = Modifier.weight(1f))
 
-            playlistPage?.songsPage?.items?.map(Innertube.SongItem::asMediaItem)
+            playlistPage?.songs?.map(InnertubeSongItem::asMediaItem)
                 ?.let { PlaylistDownloadIcon(songs = it.toImmutableList()) }
 
             HeaderIconButton(
@@ -156,7 +142,7 @@ fun PlaylistSongList(
                 icon = R.drawable.share_social,
                 color = colorPalette.text,
                 onClick = {
-                    val url = playlistPage?.url
+                    val url = playlistPage?.playlist?.shareLink
                         ?: "https://music.youtube.com/playlist?list=${browseId.removePrefix("VL")}"
 
                     val sendIntent = Intent().apply {
@@ -173,7 +159,7 @@ fun PlaylistSongList(
 
     val thumbnailContent = adaptiveThumbnailContent(
         isLoading = playlistPage == null,
-        url = playlistPage?.thumbnail?.url
+        url = playlistPage?.playlist?.thumbnail
     )
 
     val lazyListState = rememberLazyListState()
@@ -205,7 +191,10 @@ fun PlaylistSongList(
                     }
                 }
 
-                itemsIndexed(items = playlistPage?.songsPage?.items ?: emptyList()) { index, song ->
+                itemsIndexed(
+                    items = playlistPage?.songs ?: emptyList(),
+                    key = { _, song -> song.id }
+                ) { index, song ->
                     SongItem(
                         song = song,
                         thumbnailSize = Dimensions.thumbnails.song,
@@ -215,19 +204,19 @@ fun PlaylistSongList(
                                     menuState.display {
                                         NonQueuedMediaItemMenu(
                                             onDismiss = menuState::hide,
-                                            mediaItem = song.asMediaItem
+                                            mediaItem = song.asMediaItem()
                                         )
                                     }
                                 },
                                 onClick = {
-                                    playlistPage?.songsPage?.items?.map(Innertube.SongItem::asMediaItem)
+                                    playlistPage?.songs?.map(InnertubeSongItem::asMediaItem)
                                         ?.let { mediaItems ->
                                             binder?.stopRadio()
                                             binder?.player?.forcePlayAtIndex(mediaItems, index)
                                         }
                                 }
                             ),
-                        isPlaying = playing && currentMediaId == song.key
+                        isPlaying = playing && currentMediaId == song.id
                     )
                 }
 
@@ -244,11 +233,11 @@ fun PlaylistSongList(
                 lazyListState = lazyListState,
                 icon = R.drawable.shuffle,
                 onClick = {
-                    playlistPage?.songsPage?.items?.let { songs ->
+                    playlistPage?.songs?.let { songs ->
                         if (songs.isNotEmpty()) {
                             binder?.stopRadio()
                             binder?.player?.forcePlayFromBeginning(
-                                songs.shuffled().map(Innertube.SongItem::asMediaItem)
+                                songs.shuffled().map(InnertubeSongItem::asMediaItem)
                             )
                         }
                     }
@@ -256,4 +245,29 @@ fun PlaylistSongList(
             )
         }
     }
+}
+
+private fun InnertubeSongItem.toLocalSong(): Song {
+    return Song(
+        id = id,
+        title = title,
+        artistsText = artists.joinToString { it.name },
+        durationText = duration?.let { formatAsDuration(it.toLong()) } ?: "0:00",
+        thumbnailUrl = thumbnail,
+        explicit = explicit
+    )
+}
+
+private fun InnertubeSongItem.asMediaItem(): MediaItem {
+    return MediaItem.Builder()
+        .setMediaId(id)
+        .setMediaMetadata(
+            MediaMetadata.Builder()
+                .setTitle(title)
+                .setArtist(artists.joinToString { it.name })
+                .setAlbumTitle(album?.name)
+                .setArtworkUri(thumbnail.toUri())
+                .build()
+        )
+        .build()
 }

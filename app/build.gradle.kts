@@ -9,6 +9,7 @@ plugins {
     alias(libs.plugins.kotlin.parcelize)
     alias(libs.plugins.ksp)
     id("org.jetbrains.kotlin.plugin.serialization")
+    id("com.google.dagger.hilt.android")
 }
 
 val localProperties = Properties().apply {
@@ -173,9 +174,12 @@ dependencies {
     implementation(libs.kotlin.coroutines)
     implementation(libs.kotlin.immutable)
     implementation(libs.kotlin.datetime)
+    implementation(libs.hilt.android)
+    implementation(libs.hilt.navigation.compose)
 
     implementation(libs.room)
     ksp(libs.room.compiler)
+    ksp(libs.hilt.compiler)
 
     implementation(libs.log4j)
     implementation(libs.slf4j)

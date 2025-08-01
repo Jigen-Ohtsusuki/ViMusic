@@ -8,35 +8,22 @@ import kotlinx.serialization.json.JsonNames
 @Serializable
 data class ThumbnailRenderer(
     @JsonNames("croppedSquareThumbnailRenderer")
-    val musicThumbnailRenderer: MusicThumbnailRenderer?
+    val musicThumbnailRenderer: MusicThumbnailRenderer?,
+    val musicAnimatedThumbnailRenderer: MusicAnimatedThumbnailRenderer?,
+    val croppedSquareThumbnailRenderer: MusicThumbnailRenderer?,
 ) {
     @Serializable
     data class MusicThumbnailRenderer(
-        val thumbnail: Thumbnail?
+        val thumbnail: Thumbnails,
+        val thumbnailCrop: String?,
+        val thumbnailScale: String?,
     ) {
-        @Serializable
-        data class Thumbnail(
-            val thumbnails: List<it.vfsfitvnm.providers.innertube.models.Thumbnail>?
-        )
+        fun getThumbnailUrl() = thumbnail.thumbnails.lastOrNull()?.url
     }
-}
 
-@Serializable
-data class ThumbnailOverlay(
-    val musicItemThumbnailOverlayRenderer: MusicItemThumbnailOverlayRenderer
-) {
     @Serializable
-    data class MusicItemThumbnailOverlayRenderer(
-        val content: Content
-    ) {
-        @Serializable
-        data class Content(
-            val musicPlayButtonRenderer: MusicPlayButtonRenderer
-        ) {
-            @Serializable
-            data class MusicPlayButtonRenderer(
-                val playNavigationEndpoint: NavigationEndpoint?
-            )
-        }
-    }
+    data class MusicAnimatedThumbnailRenderer(
+        val animatedThumbnail: Thumbnails,
+        val backupRenderer: MusicThumbnailRenderer,
+    )
 }

@@ -8,10 +8,13 @@ import kotlinx.serialization.json.JsonNames
 @Serializable
 data class Continuation(
     @JsonNames("nextContinuationData", "nextRadioContinuationData")
-    val nextContinuationData: Data?
+    val nextContinuationData: NextContinuationData?,
 ) {
     @Serializable
-    data class Data(
-        val continuation: String?
+    data class NextContinuationData(
+        val continuation: String,
     )
 }
+
+fun List<Continuation>.getContinuation() =
+    firstOrNull()?.nextContinuationData?.continuation

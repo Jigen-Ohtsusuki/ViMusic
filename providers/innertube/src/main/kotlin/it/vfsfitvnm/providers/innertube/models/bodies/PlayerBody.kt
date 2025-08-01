@@ -5,21 +5,26 @@ import kotlinx.serialization.Serializable
 
 @Serializable
 data class PlayerBody(
-    val context: Context = Context.DefaultAndroidMusic,
+    val context: Context,
     val videoId: String,
-    val playlistId: String? = null,
-    val cpn: String? = null,
-    val contentCheckOk: String = "true",
-    val racyCheckOn: String = "true",
-    val playbackContext: PlaybackContext? = null
+    val playlistId: String?,
+    val playbackContext: PlaybackContext? = null,
+    val serviceIntegrityDimensions: ServiceIntegrityDimensions? = null,
+    val contentCheckOk: Boolean = true,
+    val racyCheckOk: Boolean = true,
 ) {
     @Serializable
     data class PlaybackContext(
-        val contentPlaybackContext: ContentPlaybackContext? = null
+        val contentPlaybackContext: ContentPlaybackContext
     ) {
         @Serializable
         data class ContentPlaybackContext(
-            val signatureTimestamp: String? = null
+            val signatureTimestamp: Int
         )
     }
+
+    @Serializable
+    data class ServiceIntegrityDimensions(
+        val poToken: String
+    )
 }

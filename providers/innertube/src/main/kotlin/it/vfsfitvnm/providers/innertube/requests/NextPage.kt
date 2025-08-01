@@ -1,94 +1,68 @@
 package it.vfsfitvnm.providers.innertube.requests
 
-import it.vfsfitvnm.providers.innertube.Innertube
-import it.vfsfitvnm.providers.innertube.models.ContinuationResponse
-import it.vfsfitvnm.providers.innertube.models.NextResponse
-import it.vfsfitvnm.providers.innertube.models.bodies.ContinuationBody
-import it.vfsfitvnm.providers.innertube.models.bodies.NextBody
-import it.vfsfitvnm.providers.innertube.utils.from
-import it.vfsfitvnm.providers.utils.runCatchingCancellable
-import io.ktor.client.call.body
-import io.ktor.client.request.post
-import io.ktor.client.request.setBody
+import it.vfsfitvnm.providers.innertube.models.Album
+import it.vfsfitvnm.providers.innertube.models.Artist
+import it.vfsfitvnm.providers.innertube.models.BrowseEndpoint
+import it.vfsfitvnm.providers.innertube.models.PlaylistPanelVideoRenderer
+import it.vfsfitvnm.providers.innertube.models.SongItem
+import it.vfsfitvnm.providers.innertube.models.WatchEndpoint
+import it.vfsfitvnm.providers.innertube.models.oddElements
+import it.vfsfitvnm.providers.innertube.models.splitBySeparator
+import it.vfsfitvnm.providers.innertube.utils.parseTime
 
-suspend fun Innertube.nextPage(body: NextBody): Result<Innertube.NextPage>? =
-    runCatchingCancellable {
-        val response = client.post(NEXT) {
-            setBody(body)
-            @Suppress("all")
-            mask(
-                "contents.singleColumnMusicWatchNextResultsRenderer.tabbedRenderer.watchNextTabbedResultsRenderer.tabs.tabRenderer.content.musicQueueRenderer.content.playlistPanelRenderer(continuations,contents(automixPreviewVideoRenderer,$PLAYLIST_PANEL_VIDEO_RENDERER_MASK))"
-            )
-        }.body<NextResponse>()
+data class NextResult(
+    val title: String? = null,
+    val items: List<SongItem>,
+    val currentIndex: Int? = null,
+    val lyricsEndpoint: BrowseEndpoint? = null,
+    val relatedEndpoint: BrowseEndpoint? = null,
+    val continuation: String?,
+    val endpoint: WatchEndpoint, // current or continuation next endpoint
+)
 
-        val tabs = response
-            .contents
-            ?.singleColumnMusicWatchNextResultsRenderer
-            ?.tabbedRenderer
-            ?.watchNextTabbedResultsRenderer
-            ?.tabs
-
-        val playlistPanelRenderer = tabs
-            ?.getOrNull(0)
-            ?.tabRenderer
-            ?.content
-            ?.musicQueueRenderer
-            ?.content
-            ?.playlistPanelRenderer
-
-        if (body.playlistId == null) {
-            val endpoint = playlistPanelRenderer
-                ?.contents
-                ?.lastOrNull()
-                ?.automixPreviewVideoRenderer
-                ?.content
-                ?.automixPlaylistVideoRenderer
-                ?.navigationEndpoint
-                ?.watchPlaylistEndpoint
-
-            if (endpoint != null) return nextPage(
-                body.copy(
-                    playlistId = endpoint.playlistId,
-                    params = endpoint.params
-                )
-            )
-        }
-
-        Innertube.NextPage(
-            playlistId = body.playlistId,
-            playlistSetVideoId = body.playlistSetVideoId,
-            params = body.params,
-            itemsPage = playlistPanelRenderer
-                ?.toSongsPage()
+object NextPage {
+    fun fromPlaylistPanelVideoRenderer(renderer: PlaylistPanelVideoRenderer): SongItem? {
+        val longByLineRuns = renderer.longBylineText?.runs?.splitBySeparator() ?: return null
+        return SongItem(
+            id = renderer.videoId ?: return null,
+            title =
+                renderer.title
+                    ?.runs
+                    ?.firstOrNull()
+                    ?.text ?: return null,
+            artists =
+                longByLineRuns.firstOrNull()?.oddElements()?.map {
+                    Artist(
+                        name = it.text,
+                        id = it.navigationEndpoint?.browseEndpoint?.browseId,
+                    )
+                } ?: return null,
+            album =
+                longByLineRuns
+                    .getOrNull(1)
+                    ?.firstOrNull()
+                    ?.takeIf {
+                        it.navigationEndpoint?.browseEndpoint != null
+                    }?.let {
+                        Album(
+                            name = it.text,
+                            id = it.navigationEndpoint?.browseEndpoint?.browseId!!,
+                        )
+                    },
+            duration =
+                renderer.lengthText
+                    ?.runs
+                    ?.firstOrNull()
+                    ?.text
+                    ?.parseTime() ?: return null,
+            thumbnail =
+                renderer.thumbnail.thumbnails
+                    .lastOrNull()
+                    ?.url ?: return null,
+            explicit =
+                renderer.badges?.find {
+                    it.musicInlineBadgeRenderer?.icon?.iconType == "MUSIC_EXPLICIT_BADGE"
+                } != null,
         )
     }
-
-suspend fun Innertube.nextPage(body: ContinuationBody) = runCatchingCancellable {
-    val response = client.post(NEXT) {
-        setBody(body)
-        @Suppress("all")
-        mask(
-            "continuationContents.playlistPanelContinuation(continuations,contents.$PLAYLIST_PANEL_VIDEO_RENDERER_MASK)"
-        )
-    }.body<ContinuationResponse>()
-
-    response
-        .continuationContents
-        ?.playlistPanelContinuation
-        ?.toSongsPage()
 }
-
-private fun NextResponse.MusicQueueRenderer.Content.PlaylistPanelRenderer?.toSongsPage() =
-    Innertube.ItemsPage(
-        items = this
-            ?.contents
-            ?.mapNotNull(
-                NextResponse.MusicQueueRenderer.Content.PlaylistPanelRenderer.Content
-                ::playlistPanelVideoRenderer
-            )?.mapNotNull(Innertube.SongItem::from),
-        continuation = this
-            ?.continuations
-            ?.firstOrNull()
-            ?.nextContinuationData
-            ?.continuation
-    )

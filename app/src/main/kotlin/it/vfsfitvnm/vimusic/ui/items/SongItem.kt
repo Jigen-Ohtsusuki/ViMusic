@@ -34,16 +34,17 @@ import it.vfsfitvnm.vimusic.utils.medium
 import it.vfsfitvnm.vimusic.utils.secondary
 import it.vfsfitvnm.vimusic.utils.semiBold
 import it.vfsfitvnm.vimusic.utils.thumbnail
+import it.vfsfitvnm.vimusic.utils.formatAsDuration
 import it.vfsfitvnm.core.ui.LocalAppearance
 import it.vfsfitvnm.core.ui.shimmer
 import it.vfsfitvnm.core.ui.utils.px
 import it.vfsfitvnm.core.ui.utils.songBundle
-import it.vfsfitvnm.providers.innertube.Innertube
+import it.vfsfitvnm.providers.innertube.models.SongItem as InnertubeSongItem
 import coil3.compose.AsyncImage
 
 @Composable
 fun SongItem(
-    song: Innertube.SongItem,
+    song: InnertubeSongItem,
     thumbnailSize: Dp,
     modifier: Modifier = Modifier,
     showDuration: Boolean = true,
@@ -52,10 +53,10 @@ fun SongItem(
     hideExplicit: Boolean = AppearancePreferences.hideExplicit
 ) = SongItem(
     modifier = modifier,
-    thumbnailUrl = song.thumbnail?.size(thumbnailSize.px),
-    title = song.info?.name,
-    authors = song.authors?.joinToString("") { it.name.orEmpty() },
-    duration = song.durationText,
+    thumbnailUrl = song.thumbnail.thumbnail(thumbnailSize.px),
+    title = song.title,
+    authors = song.artists.joinToString("") { it.name },
+    duration = song.duration?.let { formatAsDuration(it.toLong()) },
     explicit = song.explicit,
     thumbnailSize = thumbnailSize,
     showDuration = showDuration,

@@ -37,6 +37,13 @@ import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import it.vfsfitvnm.compose.persist.persist
+import it.vfsfitvnm.core.ui.Dimensions
+import it.vfsfitvnm.core.ui.LocalAppearance
+import it.vfsfitvnm.core.ui.utils.isLandscape
+import it.vfsfitvnm.providers.innertube.YouTube
+import it.vfsfitvnm.providers.innertube.models.WatchEndpoint
+import it.vfsfitvnm.providers.innertube.requests.RelatedPage
 import it.vfsfitvnm.vimusic.Database
 import it.vfsfitvnm.vimusic.LocalPlayerAwareWindowInsets
 import it.vfsfitvnm.vimusic.LocalPlayerServiceBinder
@@ -66,23 +73,18 @@ import it.vfsfitvnm.vimusic.utils.playingSong
 import it.vfsfitvnm.vimusic.utils.rememberSnapLayoutInfo
 import it.vfsfitvnm.vimusic.utils.secondary
 import it.vfsfitvnm.vimusic.utils.semiBold
-import it.vfsfitvnm.compose.persist.persist
-import it.vfsfitvnm.core.ui.Dimensions
-import it.vfsfitvnm.core.ui.LocalAppearance
-import it.vfsfitvnm.core.ui.utils.isLandscape
-import it.vfsfitvnm.providers.innertube.Innertube
-import it.vfsfitvnm.providers.innertube.models.NavigationEndpoint
-import it.vfsfitvnm.providers.innertube.models.bodies.NextBody
-import it.vfsfitvnm.providers.innertube.requests.relatedPage
 import kotlinx.coroutines.flow.distinctUntilChanged
+import it.vfsfitvnm.providers.innertube.models.AlbumItem as InnertubeAlbumItem
+import it.vfsfitvnm.providers.innertube.models.ArtistItem as InnertubeArtistItem
+import it.vfsfitvnm.providers.innertube.models.PlaylistItem as InnertubePlaylistItem
 
 @OptIn(ExperimentalFoundationApi::class)
 @Route
 @Composable
 fun QuickPicks(
-    onAlbumClick: (Innertube.AlbumItem) -> Unit,
-    onArtistClick: (Innertube.ArtistItem) -> Unit,
-    onPlaylistClick: (Innertube.PlaylistItem) -> Unit,
+    onAlbumClick: (InnertubeAlbumItem) -> Unit,
+    onArtistClick: (InnertubeArtistItem) -> Unit,
+    onPlaylistClick: (InnertubePlaylistItem) -> Unit,
     onSearchClick: () -> Unit
 ) {
     val (colorPalette, typography) = LocalAppearance.current
@@ -92,29 +94,45 @@ fun QuickPicks(
 
     var trending by persist<Song?>("home/trending")
 
-    var relatedPageResult by persist<Result<Innertube.RelatedPage?>?>(tag = "home/relatedPageResult")
+    var relatedPageResult by persist<Result<RelatedPage?>?>(tag = "home/relatedPageResult")
 
     LaunchedEffect(relatedPageResult, DataPreferences.shouldCacheQuickPicks) {
-        if (DataPreferences.shouldCacheQuickPicks)
+        if (DataPreferences.shouldCacheQuickPicks) {
             relatedPageResult?.getOrNull()?.let { DataPreferences.cachedQuickPicks = it }
-        else DataPreferences.cachedQuickPicks = Innertube.RelatedPage()
+        } else {
+            DataPreferences.cachedQuickPicks = RelatedPage(
+                songs = emptyList(),
+                albums = emptyList(),
+                artists = emptyList(),
+                playlists = emptyList()
+            )
+        }
     }
 
     LaunchedEffect(DataPreferences.quickPicksSource) {
         if (
             DataPreferences.shouldCacheQuickPicks && !DataPreferences.cachedQuickPicks.let {
-                it.albums.isNullOrEmpty() &&
-                    it.artists.isNullOrEmpty() &&
-                    it.playlists.isNullOrEmpty() &&
-                    it.songs.isNullOrEmpty()
+                it.albums.isEmpty() &&
+                    it.artists.isEmpty() &&
+                    it.playlists.isEmpty() &&
+                    it.songs.isEmpty()
             }
-        ) relatedPageResult = Result.success(DataPreferences.cachedQuickPicks)
+        ) {
+            relatedPageResult = Result.success(DataPreferences.cachedQuickPicks)
+        }
 
         suspend fun handleSong(song: Song?) {
-            if (relatedPageResult == null || trending?.id != song?.id) relatedPageResult =
-                Innertube.relatedPage(
-                    body = NextBody(videoId = (song?.id ?: "J7p4bzqLvCw"))
-                )
+            if (relatedPageResult == null || trending?.id != song?.id) {
+                // Step 1: Get the NextResult for the song's video ID
+                YouTube.next(
+                    endpoint = WatchEndpoint(videoId = (song?.id ?: "J7p4bzqLvCw"))
+                ).getOrNull()?.let { nextResult ->
+                    // Step 2: Use the relatedEndpoint from the NextResult to get related content
+                    nextResult.relatedEndpoint?.let { relatedEndpoint ->
+                        relatedPageResult = YouTube.related(endpoint = relatedEndpoint)
+                    }
+                }
+            }
             trending = song
         }
 
@@ -185,7 +203,7 @@ fun QuickPicks(
                         .height((Dimensions.thumbnails.song + Dimensions.items.verticalPadding * 2) * 4)
                 ) {
                     trending?.let { song ->
-                        item {
+                        item(key = song.id) {
                             SongItem(
                                 modifier = Modifier
                                     .combinedClickable(
@@ -207,11 +225,10 @@ fun QuickPicks(
                                             binder?.stopRadio()
                                             binder?.player?.forcePlay(mediaItem)
                                             binder?.setupRadio(
-                                                NavigationEndpoint.Endpoint.Watch(videoId = mediaItem.mediaId)
+                                                WatchEndpoint(videoId = mediaItem.mediaId)
                                             )
                                         }
                                     )
-                                    .animateItem(fadeInSpec = null, fadeOutSpec = null)
                                     .width(itemInHorizontalGridWidth),
                                 song = song,
                                 thumbnailSize = Dimensions.thumbnails.song,
@@ -230,9 +247,8 @@ fun QuickPicks(
                     }
 
                     items(
-                        items = related.songs?.dropLast(if (trending == null) 0 else 1)
-                            ?: emptyList(),
-                        key = Innertube.SongItem::key
+                        items = related.songs.dropLast(if (trending == null) 0 else 1),
+                        key = { it.id }
                     ) { song ->
                         SongItem(
                             song = song,
@@ -252,19 +268,18 @@ fun QuickPicks(
                                         binder?.stopRadio()
                                         binder?.player?.forcePlay(mediaItem)
                                         binder?.setupRadio(
-                                            NavigationEndpoint.Endpoint.Watch(videoId = mediaItem.mediaId)
+                                            WatchEndpoint(videoId = mediaItem.mediaId)
                                         )
                                     }
                                 )
-                                .animateItem(fadeInSpec = null, fadeOutSpec = null)
                                 .width(itemInHorizontalGridWidth),
                             showDuration = false,
-                            isPlaying = playing && currentMediaId == song.key
+                            isPlaying = playing && currentMediaId == song.id
                         )
                     }
                 }
 
-                related.albums?.let { albums ->
+                related.albums.let { albums ->
                     BasicText(
                         text = stringResource(R.string.related_albums),
                         style = typography.m.semiBold,
@@ -274,7 +289,7 @@ fun QuickPicks(
                     LazyRow(contentPadding = endPaddingValues) {
                         items(
                             items = albums,
-                            key = Innertube.AlbumItem::key
+                            key = { it.id }
                         ) { album ->
                             AlbumItem(
                                 album = album,
@@ -286,7 +301,7 @@ fun QuickPicks(
                     }
                 }
 
-                related.artists?.let { artists ->
+                related.artists.let { artists ->
                     BasicText(
                         text = stringResource(R.string.similar_artists),
                         style = typography.m.semiBold,
@@ -296,7 +311,7 @@ fun QuickPicks(
                     LazyRow(contentPadding = endPaddingValues) {
                         items(
                             items = artists,
-                            key = Innertube.ArtistItem::key
+                            key = { it.id }
                         ) { artist ->
                             ArtistItem(
                                 artist = artist,
@@ -308,7 +323,7 @@ fun QuickPicks(
                     }
                 }
 
-                related.playlists?.let { playlists ->
+                related.playlists.let { playlists ->
                     BasicText(
                         text = stringResource(R.string.recommended_playlists),
                         style = typography.m.semiBold,
@@ -320,7 +335,7 @@ fun QuickPicks(
                     LazyRow(contentPadding = endPaddingValues) {
                         items(
                             items = playlists,
-                            key = Innertube.PlaylistItem::key
+                            key = { it.id }
                         ) { playlist ->
                             PlaylistItem(
                                 playlist = playlist,
@@ -331,8 +346,6 @@ fun QuickPicks(
                         }
                     }
                 }
-
-                Unit
             } ?: relatedPageResult?.exceptionOrNull()?.let {
                 BasicText(
                     text = stringResource(R.string.error_message),

@@ -22,7 +22,7 @@ import it.vfsfitvnm.vimusic.utils.thumbnail
 import it.vfsfitvnm.core.ui.LocalAppearance
 import it.vfsfitvnm.core.ui.shimmer
 import it.vfsfitvnm.core.ui.utils.px
-import it.vfsfitvnm.providers.innertube.Innertube
+import it.vfsfitvnm.providers.innertube.models.ArtistItem as InnertubeArtistItem
 import coil3.compose.AsyncImage
 
 @Composable
@@ -42,14 +42,14 @@ fun ArtistItem(
 
 @Composable
 fun ArtistItem(
-    artist: Innertube.ArtistItem,
+    artist: InnertubeArtistItem,
     thumbnailSize: Dp,
     modifier: Modifier = Modifier,
     alternative: Boolean = false
 ) = ArtistItem(
-    thumbnailUrl = artist.thumbnail?.url,
-    name = artist.info?.name,
-    subscribersCount = artist.subscribersCountText,
+    thumbnailUrl = artist.thumbnail,
+    name = artist.title,
+    subscribersCount = null,
     thumbnailSize = thumbnailSize,
     modifier = modifier,
     alternative = alternative
@@ -91,7 +91,7 @@ fun ArtistItem(
 
         subscribersCount?.let {
             BasicText(
-                text = subscribersCount,
+                text = it,
                 style = typography.xxs.semiBold.secondary,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,

@@ -10,6 +10,7 @@ import it.vfsfitvnm.vimusic.ui.screens.Route
 import it.vfsfitvnm.vimusic.ui.screens.moodRoute
 import it.vfsfitvnm.compose.persist.PersistMapCleanup
 import it.vfsfitvnm.compose.routing.RouteHandler
+import it.vfsfitvnm.providers.innertube.requests.MoodAndGenres
 
 @Route
 @Composable
@@ -39,7 +40,7 @@ fun MoreMoodsScreen() {
                 saveableStateHolder.SaveableStateProvider(key = currentTabIndex) {
                     when (currentTabIndex) {
                         0 -> MoreMoodsList(
-                            onMoodClick = { mood -> moodRoute(mood.toUiMood()) }
+                            onMoodClick = { mood: MoodAndGenres.Item -> moodRoute(mood.toUiMood()) }
                         )
                     }
                 }

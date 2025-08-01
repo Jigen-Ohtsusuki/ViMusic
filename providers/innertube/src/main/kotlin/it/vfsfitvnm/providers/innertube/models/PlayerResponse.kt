@@ -1,132 +1,102 @@
 package it.vfsfitvnm.providers.innertube.models
 
-
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.Transient
-import io.ktor.http.parseQueryString
-import it.vfsfitvnm.providers.innertube.NewPipeManager
 
 @Serializable
 data class PlayerResponse(
-    val playabilityStatus: PlayabilityStatus?,
+    val responseContext: ResponseContext,
+    val playabilityStatus: PlayabilityStatus,
     val playerConfig: PlayerConfig?,
     val streamingData: StreamingData?,
     val videoDetails: VideoDetails?,
-    @Transient
-    val context: Context? = null,
-    @Transient
-    val cpn: String? = null
+    @SerialName("playbackTracking")
+    val playbackTracking: PlaybackTracking?,
 ) {
-    val reason
-        get() = if (playabilityStatus != null && playabilityStatus.status != "OK") buildString {
-            appendLine("YouTube responded with status '${playabilityStatus.reason.orEmpty()}'")
-            playabilityStatus.reason?.let { appendLine("Reason: $it") }
-            playabilityStatus.errorScreen?.playerErrorMessageRenderer?.subreason?.text?.let {
-                appendLine()
-                appendLine(it)
-            }
-        } else null
-
     @Serializable
     data class PlayabilityStatus(
-        val status: String? = null,
-        val reason: String? = null,
-        val errorScreen: ErrorScreen? = null
+        val status: String,
+        val reason: String?,
     )
 
     @Serializable
     data class PlayerConfig(
-        val audioConfig: AudioConfig?
+        val audioConfig: AudioConfig,
     ) {
         @Serializable
         data class AudioConfig(
-            internal val loudnessDb: Double?,
-            internal val perceptualLoudnessDb: Double?
-        ) {
-            // For music clients only
-            val normalizedLoudnessDb: Float?
-                get() = (loudnessDb ?: perceptualLoudnessDb?.plus(7))?.plus(7)?.toFloat()
-        }
+            val loudnessDb: Double?,
+            val perceptualLoudnessDb: Double?,
+        )
     }
 
     @Serializable
     data class StreamingData(
-        val adaptiveFormats: List<AdaptiveFormat>?,
-        val expiresInSeconds: Long?
+        val formats: List<Format>?,
+        val adaptiveFormats: List<Format>,
+        val expiresInSeconds: Int,
     ) {
-        val highestQualityFormat: AdaptiveFormat?
-            get() = adaptiveFormats?.filter { it.url != null || it.signatureCipher != null }
-                ?.let { formats ->
-                    formats.findLast { it.itag == 251 || it.itag == 140 }
-                        ?: formats.maxBy { it.bitrate ?: 0L }
-                }
-
         @Serializable
-        data class AdaptiveFormat(
+        data class Format(
             val itag: Int,
-            val mimeType: String,
-            val bitrate: Long?,
-            val averageBitrate: Long?,
-            val contentLength: Long?,
-            val audioQuality: String?,
-            val approxDurationMs: Long?,
-            val lastModified: Long?,
-            val loudnessDb: Double?,
-            val audioSampleRate: Int?,
             val url: String?,
-            val signatureCipher: String?
+            val mimeType: String,
+            val bitrate: Int,
+            val width: Int?,
+            val height: Int?,
+            val contentLength: Long?,
+            val quality: String,
+            val fps: Int?,
+            val qualityLabel: String?,
+            val averageBitrate: Int?,
+            val audioQuality: String?,
+            val approxDurationMs: String?,
+            val audioSampleRate: Int?,
+            val audioChannels: Int?,
+            val loudnessDb: Double?,
+            val lastModified: Long?,
+            val signatureCipher: String?,
         ) {
-            fun findUrl(context: Context): String? {
-
-                if (url != null) {
-                    return url
-                }
-
-                if (signatureCipher != null) {
-                    val videoId = parseQueryString(signatureCipher)["url"]
-                        ?.let { urlString -> parseQueryString(urlString)["v"] }
-
-                    if (videoId == null) {
-                        return null
-                    }
-
-                    val streamUrl = NewPipeManager.getStreamUrl(format = this, videoId = videoId).getOrNull()
-
-                    return streamUrl
-                }
-
-                return null
-            }
+            val isAudio: Boolean
+                get() = width == null
         }
     }
 
     @Serializable
     data class VideoDetails(
-        val videoId: String?,
-        val title: String?,
-        val author: String?,
-        val thumbnail: Thumbnail?
+        val videoId: String,
+        val title: String,
+        val author: String,
+        val channelId: String,
+        val lengthSeconds: String,
+        val musicVideoType: String?,
+        val viewCount: String,
+        val thumbnail: Thumbnails,
     )
 
     @Serializable
-    data class Thumbnail(
-        val thumbnails: List<ThumbnailUrl>
+    data class PlaybackTracking(
+        @SerialName("videostatsPlaybackUrl")
+        val videostatsPlaybackUrl: VideostatsPlaybackUrl?,
+        @SerialName("videostatsWatchtimeUrl")
+        val videostatsWatchtimeUrl: VideostatsWatchtimeUrl?,
+        @SerialName("atrUrl")
+        val atrUrl: AtrUrl?,
     ) {
         @Serializable
-        data class ThumbnailUrl(
-            val url: String,
-            val width: Int,
-            val height: Int
+        data class VideostatsPlaybackUrl(
+            @SerialName("baseUrl")
+            val baseUrl: String?,
+        )
+        @Serializable
+        data class VideostatsWatchtimeUrl(
+            @SerialName("baseUrl")
+            val baseUrl: String?,
+        )
+        @Serializable
+        data class AtrUrl(
+            @SerialName("baseUrl")
+            val baseUrl: String?,
         )
     }
-}
-
-@Serializable
-data class ErrorScreen(
-    val playerErrorMessageRenderer: PlayerErrorMessageRenderer? = null
-) {
-    @Serializable
-    data class PlayerErrorMessageRenderer(
-        val subreason: Runs? = null
-    )
 }

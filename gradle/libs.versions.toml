@@ -1,5 +1,7 @@
 [versions]
 converterGson = "3.0.0"
+hiltAndroid = "2.57"
+hiltNavigationCompose = "1.2.0"
 kotlin = "2.2.0"
 kotlinxSerializationJson = "1.9.0"
 ksp = "2.2.0-2.0.2"
@@ -32,6 +34,9 @@ detekt = { id = "io.gitlab.arturbosch.detekt", version.ref = "detekt" }
 converter-gson = { module = "com.squareup.retrofit2:converter-gson", version.ref = "converterGson" }
 core_ktx = { module = "androidx.core:core-ktx", version = "1.16.0" }
 
+hilt-android = { module = "com.google.dagger:hilt-android", version.ref = "hiltAndroid" }
+hilt-compiler = { module = "com.google.dagger:hilt-compiler", version.ref = "hiltAndroid" }
+hilt-navigation-compose = { module = "androidx.hilt:hilt-navigation-compose", version.ref = "hiltNavigationCompose" }
 kotlin_coroutines = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-core", version = "1.10.2" }
 kotlin_datetime = { module = "org.jetbrains.kotlinx:kotlinx-datetime", version = "0.7.1-0.6.x-compat" }
 kotlin_immutable = { module = "org.jetbrains.kotlinx:kotlinx-collections-immutable", version = "0.4.0" }

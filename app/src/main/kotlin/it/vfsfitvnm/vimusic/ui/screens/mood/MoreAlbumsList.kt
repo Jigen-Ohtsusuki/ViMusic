@@ -1,5 +1,6 @@
 package it.vfsfitvnm.vimusic.ui.screens.mood
 
+import android.annotation.SuppressLint
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -31,15 +32,17 @@ import it.vfsfitvnm.vimusic.ui.items.AlbumItemPlaceholder
 import it.vfsfitvnm.compose.persist.persist
 import it.vfsfitvnm.core.ui.Dimensions
 import it.vfsfitvnm.core.ui.LocalAppearance
-import it.vfsfitvnm.providers.innertube.Innertube
-import it.vfsfitvnm.providers.innertube.models.bodies.BrowseBody
+import it.vfsfitvnm.providers.innertube.YouTube
+import it.vfsfitvnm.providers.innertube.models.AlbumItem as InnertubeAlbumItem
 import it.vfsfitvnm.providers.innertube.requests.BrowseResult
-import it.vfsfitvnm.providers.innertube.requests.browse
 import com.valentinilk.shimmer.shimmer
 import kotlinx.collections.immutable.toImmutableList
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 private const val DEFAULT_BROWSE_ID = "FEmusic_new_releases_albums"
 
+@SuppressLint("UnusedBoxWithConstraintsScope")
 @Composable
 fun MoreAlbumsList(
     onAlbumClick: (browseId: String) -> Unit,
@@ -57,18 +60,28 @@ fun MoreAlbumsList(
                 ?.items
                 ?.firstOrNull()
                 ?.items
-                ?.filterIsInstance<Innertube.AlbumItem>()
+                ?.filterIsInstance<InnertubeAlbumItem>()
                 ?.toImmutableList()
         }
     }
 
-    LaunchedEffect(Unit) {
+    LaunchedEffect(Unit) { // This provides the coroutine scope
         if (albumsPage != null) return@LaunchedEffect
 
-        albumsPage = Innertube
-            .browse(BrowseBody(browseId = DEFAULT_BROWSE_ID))
-            ?.also { it.exceptionOrNull()?.printStackTrace() }
-            ?.getOrNull()
+        // All the code inside this block is running in a coroutine
+        val result = withContext(Dispatchers.IO) { // withContext is fine here
+            runCatching {
+                YouTube.browse( // YouTube.browse is fine here
+                    browseId = DEFAULT_BROWSE_ID,
+                    params = null
+                )
+            }
+        }
+
+        result.onSuccess { newAlbumsPage ->
+        }.onFailure {
+            it.printStackTrace()
+        }
     }
 
     LazyVerticalGrid(
@@ -95,7 +108,7 @@ fun MoreAlbumsList(
         data?.let { page ->
             itemsIndexed(
                 items = page,
-                key = { i, item -> "item:$i,${item.key}" }
+                key = { i, item -> "item:$i,${item.browseId}" }
             ) { _, album ->
                 BoxWithConstraints {
                     AlbumItem(
@@ -104,7 +117,7 @@ fun MoreAlbumsList(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clickable {
-                                onAlbumClick(album.key)
+                                onAlbumClick(album.browseId)
                             },
                         alternative = true
                     )

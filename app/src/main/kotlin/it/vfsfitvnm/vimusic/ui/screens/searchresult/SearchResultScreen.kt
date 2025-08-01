@@ -10,6 +10,15 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import it.vfsfitvnm.compose.persist.LocalPersistMap
+import it.vfsfitvnm.compose.persist.PersistMapCleanup
+import it.vfsfitvnm.compose.routing.RouteHandler
+import it.vfsfitvnm.core.ui.Dimensions
+import it.vfsfitvnm.providers.innertube.YouTube
+import it.vfsfitvnm.providers.innertube.models.AlbumItem
+import it.vfsfitvnm.providers.innertube.models.ArtistItem
+import it.vfsfitvnm.providers.innertube.models.PlaylistItem
+import it.vfsfitvnm.providers.innertube.models.SongItem
 import it.vfsfitvnm.vimusic.LocalPlayerServiceBinder
 import it.vfsfitvnm.vimusic.R
 import it.vfsfitvnm.vimusic.preferences.UIStatePreferences
@@ -17,16 +26,7 @@ import it.vfsfitvnm.vimusic.ui.components.LocalMenuState
 import it.vfsfitvnm.vimusic.ui.components.themed.Header
 import it.vfsfitvnm.vimusic.ui.components.themed.NonQueuedMediaItemMenu
 import it.vfsfitvnm.vimusic.ui.components.themed.Scaffold
-import it.vfsfitvnm.vimusic.ui.items.AlbumItem
-import it.vfsfitvnm.vimusic.ui.items.AlbumItemPlaceholder
-import it.vfsfitvnm.vimusic.ui.items.ArtistItem
-import it.vfsfitvnm.vimusic.ui.items.ArtistItemPlaceholder
-import it.vfsfitvnm.vimusic.ui.items.PlaylistItem
-import it.vfsfitvnm.vimusic.ui.items.PlaylistItemPlaceholder
-import it.vfsfitvnm.vimusic.ui.items.SongItem
-import it.vfsfitvnm.vimusic.ui.items.SongItemPlaceholder
-import it.vfsfitvnm.vimusic.ui.items.VideoItem
-import it.vfsfitvnm.vimusic.ui.items.VideoItemPlaceholder
+import it.vfsfitvnm.vimusic.ui.items.*
 import it.vfsfitvnm.vimusic.ui.screens.GlobalRoutes
 import it.vfsfitvnm.vimusic.ui.screens.Route
 import it.vfsfitvnm.vimusic.ui.screens.albumRoute
@@ -35,15 +35,6 @@ import it.vfsfitvnm.vimusic.ui.screens.playlistRoute
 import it.vfsfitvnm.vimusic.utils.asMediaItem
 import it.vfsfitvnm.vimusic.utils.forcePlay
 import it.vfsfitvnm.vimusic.utils.playingSong
-import it.vfsfitvnm.compose.persist.LocalPersistMap
-import it.vfsfitvnm.compose.persist.PersistMapCleanup
-import it.vfsfitvnm.compose.routing.RouteHandler
-import it.vfsfitvnm.core.ui.Dimensions
-import it.vfsfitvnm.providers.innertube.Innertube
-import it.vfsfitvnm.providers.innertube.models.bodies.ContinuationBody
-import it.vfsfitvnm.providers.innertube.models.bodies.SearchBody
-import it.vfsfitvnm.providers.innertube.requests.searchPage
-import it.vfsfitvnm.providers.innertube.utils.from
 
 @OptIn(ExperimentalFoundationApi::class)
 @Route
@@ -59,22 +50,24 @@ fun SearchResultScreen(query: String, onSearchAgain: () -> Unit) {
 
     val (currentMediaId, playing) = playingSong(binder)
 
+    // Define a proper header composable
+    @Composable
+    fun SearchHeader() {
+        Header(
+            title = query,
+            modifier = Modifier.pointerInput(Unit) {
+                detectTapGestures {
+                    persistMap?.clean("searchResults/$query/")
+                    onSearchAgain()
+                }
+            }
+        )
+    }
+
     RouteHandler {
         GlobalRoutes()
 
         Content {
-            val headerContent: @Composable (textButton: (@Composable () -> Unit)?) -> Unit = {
-                Header(
-                    title = query,
-                    modifier = Modifier.pointerInput(Unit) {
-                        detectTapGestures {
-                            persistMap?.clean("searchResults/$query/")
-                            onSearchAgain()
-                        }
-                    }
-                )
-            }
-
             Scaffold(
                 key = "searchresult",
                 topIconButtonId = R.drawable.chevron_back,
@@ -93,21 +86,10 @@ fun SearchResultScreen(query: String, onSearchAgain: () -> Unit) {
                     when (tabIndex) {
                         0 -> ItemsPage(
                             tag = "searchResults/$query/songs",
-                            provider = { continuation ->
-                                if (continuation == null) Innertube.searchPage(
-                                    body = SearchBody(
-                                        query = query,
-                                        params = Innertube.SearchFilter.Song.value
-                                    ),
-                                    fromMusicShelfRendererContent = Innertube.SongItem.Companion::from
-                                ) else Innertube.searchPage(
-                                    body = ContinuationBody(continuation = continuation),
-                                    fromMusicShelfRendererContent = Innertube.SongItem.Companion::from
-                                )
+                            header = @Composable { textButton: (@Composable () -> Unit)? ->
+                                SearchHeader()
                             },
-                            emptyItemsText = stringResource(R.string.no_search_results),
-                            header = headerContent,
-                            itemContent = { song ->
+                            itemContent = { song: SongItem ->
                                 SongItem(
                                     song = song,
                                     thumbnailSize = Dimensions.thumbnails.song,
@@ -116,17 +98,17 @@ fun SearchResultScreen(query: String, onSearchAgain: () -> Unit) {
                                             menuState.display {
                                                 NonQueuedMediaItemMenu(
                                                     onDismiss = menuState::hide,
-                                                    mediaItem = song.asMediaItem
+                                                    mediaItem = song.asMediaItem()
                                                 )
                                             }
                                         },
                                         onClick = {
                                             binder?.stopRadio()
-                                            binder?.player?.forcePlay(song.asMediaItem)
-                                            binder?.setupRadio(song.info?.endpoint)
+                                            binder?.player?.forcePlay(song.asMediaItem())
+                                            binder?.setupRadio(song.endpoint)
                                         }
                                     ),
-                                    isPlaying = playing && currentMediaId == song.key
+                                    isPlaying = playing && currentMediaId == song.id
                                 )
                             },
                             itemPlaceholderContent = {
@@ -136,29 +118,14 @@ fun SearchResultScreen(query: String, onSearchAgain: () -> Unit) {
 
                         1 -> ItemsPage(
                             tag = "searchResults/$query/albums",
-                            provider = { continuation ->
-                                if (continuation == null) {
-                                    Innertube.searchPage(
-                                        body = SearchBody(
-                                            query = query,
-                                            params = Innertube.SearchFilter.Album.value
-                                        ),
-                                        fromMusicShelfRendererContent = Innertube.AlbumItem::from
-                                    )
-                                } else {
-                                    Innertube.searchPage(
-                                        body = ContinuationBody(continuation = continuation),
-                                        fromMusicShelfRendererContent = Innertube.AlbumItem::from
-                                    )
-                                }
+                            header = @Composable { textButton: (@Composable () -> Unit)? ->
+                                SearchHeader()
                             },
-                            emptyItemsText = stringResource(R.string.no_search_results),
-                            header = headerContent,
-                            itemContent = { album ->
+                            itemContent = { album: AlbumItem ->
                                 AlbumItem(
                                     album = album,
                                     thumbnailSize = Dimensions.thumbnails.album,
-                                    modifier = Modifier.clickable(onClick = { albumRoute(album.key) })
+                                    modifier = Modifier.clickable(onClick = { albumRoute(album.browseId) })
                                 )
                             },
                             itemPlaceholderContent = {
@@ -168,30 +135,15 @@ fun SearchResultScreen(query: String, onSearchAgain: () -> Unit) {
 
                         2 -> ItemsPage(
                             tag = "searchResults/$query/artists",
-                            provider = { continuation ->
-                                if (continuation == null) {
-                                    Innertube.searchPage(
-                                        body = SearchBody(
-                                            query = query,
-                                            params = Innertube.SearchFilter.Artist.value
-                                        ),
-                                        fromMusicShelfRendererContent = Innertube.ArtistItem::from
-                                    )
-                                } else {
-                                    Innertube.searchPage(
-                                        body = ContinuationBody(continuation = continuation),
-                                        fromMusicShelfRendererContent = Innertube.ArtistItem::from
-                                    )
-                                }
+                            header = @Composable { textButton: (@Composable () -> Unit)? ->
+                                SearchHeader()
                             },
-                            emptyItemsText = stringResource(R.string.no_search_results),
-                            header = headerContent,
-                            itemContent = { artist ->
+                            itemContent = { artist: ArtistItem ->
                                 ArtistItem(
                                     artist = artist,
                                     thumbnailSize = 64.dp,
                                     modifier = Modifier
-                                        .clickable(onClick = { artistRoute(artist.key) })
+                                        .clickable(onClick = { artistRoute(artist.id) })
                                 )
                             },
                             itemPlaceholderContent = {
@@ -201,72 +153,47 @@ fun SearchResultScreen(query: String, onSearchAgain: () -> Unit) {
 
                         3 -> ItemsPage(
                             tag = "searchResults/$query/videos",
-                            provider = { continuation ->
-                                if (continuation == null) Innertube.searchPage(
-                                    body = SearchBody(
-                                        query = query,
-                                        params = Innertube.SearchFilter.Video.value
-                                    ),
-                                    fromMusicShelfRendererContent = Innertube.VideoItem::from
-                                ) else Innertube.searchPage(
-                                    body = ContinuationBody(continuation = continuation),
-                                    fromMusicShelfRendererContent = Innertube.VideoItem::from
-                                )
+                            header = @Composable { textButton: (@Composable () -> Unit)? ->
+                                SearchHeader()
                             },
-                            emptyItemsText = stringResource(R.string.no_search_results),
-                            header = headerContent,
-                            itemContent = { video ->
-                                VideoItem(
-                                    video = video,
-                                    thumbnailWidth = 128.dp,
-                                    thumbnailHeight = 72.dp,
+                            itemContent = { video: SongItem ->
+                                SongItem(
+                                    song = video,
+                                    thumbnailSize = Dimensions.thumbnails.song,
                                     modifier = Modifier.combinedClickable(
                                         onLongClick = {
                                             menuState.display {
                                                 NonQueuedMediaItemMenu(
-                                                    mediaItem = video.asMediaItem,
+                                                    mediaItem = video.asMediaItem(),
                                                     onDismiss = menuState::hide
                                                 )
                                             }
                                         },
                                         onClick = {
                                             binder?.stopRadio()
-                                            binder?.player?.forcePlay(video.asMediaItem)
-                                            binder?.setupRadio(video.info?.endpoint)
+                                            binder?.player?.forcePlay(video.asMediaItem())
+                                            binder?.setupRadio(video.endpoint)
                                         }
-                                    )
+                                    ),
+                                    isPlaying = playing && currentMediaId == video.id
                                 )
                             },
                             itemPlaceholderContent = {
-                                VideoItemPlaceholder(
-                                    thumbnailWidth = 128.dp,
-                                    thumbnailHeight = 72.dp
-                                )
+                                SongItemPlaceholder(thumbnailSize = Dimensions.thumbnails.song)
                             }
                         )
 
                         4 -> ItemsPage(
                             tag = "searchResults/$query/playlists",
-                            provider = { continuation ->
-                                if (continuation == null) Innertube.searchPage(
-                                    body = SearchBody(
-                                        query = query,
-                                        params = Innertube.SearchFilter.CommunityPlaylist.value
-                                    ),
-                                    fromMusicShelfRendererContent = Innertube.PlaylistItem::from
-                                ) else Innertube.searchPage(
-                                    body = ContinuationBody(continuation = continuation),
-                                    fromMusicShelfRendererContent = Innertube.PlaylistItem::from
-                                )
+                            header = @Composable { textButton: (@Composable () -> Unit)? ->
+                                SearchHeader()
                             },
-                            emptyItemsText = stringResource(R.string.no_search_results),
-                            header = headerContent,
-                            itemContent = { playlist ->
+                            itemContent = { playlist: PlaylistItem ->
                                 PlaylistItem(
                                     playlist = playlist,
                                     thumbnailSize = Dimensions.thumbnails.playlist,
                                     modifier = Modifier.clickable {
-                                        playlistRoute(playlist.key, null, null, false)
+                                        playlistRoute(playlist.id, null, null, false)
                                     }
                                 )
                             },

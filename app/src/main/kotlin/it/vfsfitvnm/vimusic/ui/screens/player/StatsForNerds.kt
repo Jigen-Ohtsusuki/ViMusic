@@ -32,6 +32,11 @@ import androidx.compose.ui.unit.dp
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.cache.Cache
 import androidx.media3.datasource.cache.CacheSpan
+import it.vfsfitvnm.core.ui.LocalAppearance
+import it.vfsfitvnm.core.ui.onOverlay
+import it.vfsfitvnm.core.ui.overlay
+import it.vfsfitvnm.providers.innertube.YouTube
+import it.vfsfitvnm.providers.innertube.models.YouTubeClient
 import it.vfsfitvnm.vimusic.Database
 import it.vfsfitvnm.vimusic.LocalPlayerServiceBinder
 import it.vfsfitvnm.vimusic.R
@@ -40,12 +45,6 @@ import it.vfsfitvnm.vimusic.service.PlayerService
 import it.vfsfitvnm.vimusic.ui.components.themed.SecondaryTextButton
 import it.vfsfitvnm.vimusic.utils.color
 import it.vfsfitvnm.vimusic.utils.medium
-import it.vfsfitvnm.core.ui.LocalAppearance
-import it.vfsfitvnm.core.ui.onOverlay
-import it.vfsfitvnm.core.ui.overlay
-import it.vfsfitvnm.providers.innertube.Innertube
-import it.vfsfitvnm.providers.innertube.models.bodies.PlayerBody
-import it.vfsfitvnm.providers.innertube.requests.player
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
@@ -87,24 +86,30 @@ fun StatsForNerds(
                 withContext(Dispatchers.IO) {
                     delay(2000)
 
-                    Innertube
-                        .player(PlayerBody(videoId = mediaId))
-                        ?.onSuccess { response ->
-                            response?.streamingData?.highestQualityFormat?.let { format ->
-                                Database.instance.insert(mediaItem)
-                                Database.instance.insert(
-                                    Format(
-                                        songId = mediaId,
-                                        itag = format.itag,
-                                        mimeType = format.mimeType,
-                                        bitrate = format.bitrate,
-                                        loudnessDb = response.playerConfig?.audioConfig?.normalizedLoudnessDb,
-                                        contentLength = format.contentLength,
-                                        lastModified = format.lastModified
-                                    )
+                    YouTube.player(
+                        videoId = mediaId,
+                        client = YouTubeClient.WEB_REMIX
+                    ).onSuccess { response ->
+                        val bestFormat = response.streamingData?.adaptiveFormats
+                            ?.filter { it.isAudio }
+                            ?.maxByOrNull { it.bitrate }
+
+                        bestFormat?.let { format ->
+                            Database.instance.insert(mediaItem)
+                            Database.instance.insert(
+                                Format(
+                                    songId = mediaId,
+                                    itag = format.itag,
+                                    mimeType = format.mimeType,
+                                    bitrate = format.bitrate.toLong(),
+                                    loudnessDb = (response.playerConfig?.audioConfig?.loudnessDb
+                                        ?: format.loudnessDb)?.toFloat(),
+                                    contentLength = format.contentLength,
+                                    lastModified = format.lastModified
                                 )
-                            }
+                            )
                         }
+                    }
                 }
             }
     }
@@ -193,7 +198,9 @@ fun StatsForNerds(
                         append(Formatter.formatShortFileSize(context, cachedBytes))
 
                         format?.contentLength?.let {
-                            append(" (${(cachedBytes.toFloat() / it * 100).roundToInt()}%)")
+                            if (it > 0) {
+                                append(" (${(cachedBytes.toFloat() / it * 100).roundToInt()}%)")
+                            }
                         }
                     }
                 )

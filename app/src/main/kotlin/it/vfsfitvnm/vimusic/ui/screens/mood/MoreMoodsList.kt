@@ -21,7 +21,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.util.fastForEachIndexed
 import it.vfsfitvnm.vimusic.LocalPlayerAwareWindowInsets
 import it.vfsfitvnm.vimusic.R
 import it.vfsfitvnm.vimusic.ui.components.ShimmerHost
@@ -33,18 +32,15 @@ import it.vfsfitvnm.vimusic.utils.semiBold
 import it.vfsfitvnm.compose.persist.persist
 import it.vfsfitvnm.core.ui.Dimensions
 import it.vfsfitvnm.core.ui.LocalAppearance
-import it.vfsfitvnm.providers.innertube.Innertube
-import it.vfsfitvnm.providers.innertube.models.bodies.BrowseBody
-import it.vfsfitvnm.providers.innertube.requests.BrowseResult
-import it.vfsfitvnm.providers.innertube.requests.browse
+import it.vfsfitvnm.providers.innertube.YouTube
+import it.vfsfitvnm.providers.innertube.requests.MoodAndGenres
 import com.valentinilk.shimmer.shimmer
-import kotlinx.collections.immutable.toImmutableList
-
-private const val DEFAULT_BROWSE_ID = "FEmusic_moods_and_genres"
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 @Composable
 fun MoreMoodsList(
-    onMoodClick: (mood: Innertube.Mood.Item) -> Unit,
+    onMoodClick: (mood: MoodAndGenres.Item) -> Unit,
     modifier: Modifier = Modifier,
     columns: Int = 2
 ) {
@@ -58,11 +54,14 @@ fun MoreMoodsList(
         .padding(top = 24.dp, bottom = 8.dp)
         .padding(endPaddingValues)
 
-    var moodsPage by persist<BrowseResult>(tag = "more_moods/list")
+    // The data type has changed from BrowseResult to a List<MoodAndGenres>
+    var moodsPage by persist<List<MoodAndGenres>>(tag = "more_moods/list")
+
     val data by remember {
         derivedStateOf {
-            moodsPage?.items?.map {
-                it.title.orEmpty() to it.items.filterIsInstance<Innertube.Mood.Item>().toImmutableList()
+            moodsPage?.flatMap { moodAndGenres ->
+                // Flatten the list of MoodAndGenres into a list of pairs (title, items)
+                listOf(moodAndGenres.title to moodAndGenres.items)
             }
         }
     }
@@ -70,10 +69,16 @@ fun MoreMoodsList(
     LaunchedEffect(Unit) {
         if (moodsPage != null) return@LaunchedEffect
 
-        moodsPage = Innertube
-            .browse(BrowseBody(browseId = DEFAULT_BROWSE_ID))
-            ?.also { it.exceptionOrNull()?.printStackTrace() }
-            ?.getOrNull()
+        val result = withContext(Dispatchers.IO) {
+            // Call the new, specific API function
+            YouTube.moodAndGenres()
+        }
+
+        result.onSuccess { newMoodsAndGenresList ->
+            moodsPage = newMoodsAndGenresList
+        }.onFailure {
+            it.printStackTrace()
+        }
     }
 
     LazyVerticalGrid(
@@ -98,7 +103,7 @@ fun MoreMoodsList(
         }
 
         data?.let { page ->
-            if (page.isNotEmpty()) page.fastForEachIndexed { i, (title, moods) ->
+            page.forEachIndexed { i, (title, moods) ->
                 item(
                     key = "header:$i,$title",
                     contentType = 0,
@@ -113,11 +118,11 @@ fun MoreMoodsList(
 
                 itemsIndexed(
                     items = moods,
-                    key = { j, item -> "item:$j,${item.key}" }
+                    key = { j, item -> "item:$j,${item.endpoint.browseId}" }
                 ) { _, mood ->
                     MoodItem(
                         mood = mood,
-                        onClick = { mood.endpoint.browseId?.let { _ -> onMoodClick(mood) } },
+                        onClick = { mood.endpoint.browseId.let { _ -> onMoodClick(mood) } },
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(4.dp)

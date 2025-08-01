@@ -104,6 +104,7 @@ import it.vfsfitvnm.core.ui.utils.roundedShape
 import it.vfsfitvnm.core.ui.utils.songBundle
 import it.vfsfitvnm.providers.innertube.models.NavigationEndpoint
 import coil3.compose.AsyncImage
+import it.vfsfitvnm.providers.innertube.models.WatchEndpoint
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlin.math.absoluteValue
 
@@ -588,7 +589,7 @@ fun PlayerMenu(
         onStartRadio = {
             binder.stopRadio()
             binder.player.seamlessPlay(mediaItem)
-            binder.setupRadio(NavigationEndpoint.Endpoint.Watch(videoId = mediaItem.mediaId))
+            binder.setupRadio(WatchEndpoint(videoId = mediaItem.mediaId))
         },
         onGoToEqualizer = launchEqualizer,
         onShowSleepTimer = {},

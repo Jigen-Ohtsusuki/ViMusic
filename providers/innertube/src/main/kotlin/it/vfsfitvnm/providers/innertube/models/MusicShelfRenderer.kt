@@ -4,37 +4,25 @@ import kotlinx.serialization.Serializable
 
 @Serializable
 data class MusicShelfRenderer(
-    val bottomEndpoint: NavigationEndpoint?,
+    val title: Runs?,
     val contents: List<Content>?,
     val continuations: List<Continuation>?,
-    val title: Runs?
+    val bottomEndpoint: NavigationEndpoint?,
+    val moreContentButton: Button?,
 ) {
     @Serializable
     data class Content(
-        val musicResponsiveListItemRenderer: MusicResponsiveListItemRenderer?
-    ) {
-        val runs: Pair<List<Runs.Run>, List<List<Runs.Run>>>
-            get() = musicResponsiveListItemRenderer
-                ?.flexColumns
-                ?.firstOrNull()
-                ?.musicResponsiveListItemFlexColumnRenderer
-                ?.text
-                ?.runs
-                .orEmpty() to
-                musicResponsiveListItemRenderer
-                    ?.flexColumns
-                    ?.let { it.getOrNull(1) ?: it.lastOrNull() }
-                    ?.musicResponsiveListItemFlexColumnRenderer
-                    ?.text
-                    ?.splitBySeparator()
-                    .orEmpty()
-
-        val thumbnail: Thumbnail?
-            get() = musicResponsiveListItemRenderer
-                ?.thumbnail
-                ?.musicThumbnailRenderer
-                ?.thumbnail
-                ?.thumbnails
-                ?.firstOrNull()
-    }
+        val musicResponsiveListItemRenderer: MusicResponsiveListItemRenderer?,
+        val continuationItemRenderer: ContinuationItemRenderer?,
+    )
 }
+
+fun List<MusicShelfRenderer.Content>.getItems(): List<MusicResponsiveListItemRenderer> =
+    mapNotNull { it.musicResponsiveListItemRenderer }
+
+fun List<MusicShelfRenderer.Content>.getContinuation(): String? =
+    firstOrNull { it.continuationItemRenderer != null }
+        ?.continuationItemRenderer
+        ?.continuationEndpoint
+        ?.continuationCommand
+        ?.token

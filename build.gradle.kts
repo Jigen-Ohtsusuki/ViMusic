@@ -11,6 +11,7 @@ plugins {
     alias(libs.plugins.android.lint) apply false
     alias(libs.plugins.ksp) apply false
     alias(libs.plugins.detekt)
+    id("com.google.dagger.hilt.android") version "2.57" apply false
 }
 
 val clean by tasks.registering(Delete::class) {

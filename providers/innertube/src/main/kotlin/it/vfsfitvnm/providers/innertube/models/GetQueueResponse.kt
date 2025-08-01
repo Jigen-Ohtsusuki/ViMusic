@@ -1,15 +1,14 @@
-package it.vfsfitvnm.providers.innertube.models
+package it.vfsfitvnm.providers.innertube.models.response
 
-import kotlinx.serialization.SerialName
+import it.vfsfitvnm.providers.innertube.models.PlaylistPanelRenderer
 import kotlinx.serialization.Serializable
 
 @Serializable
 data class GetQueueResponse(
-    @SerialName("queueDatas")
-    val queueData: List<QueueData>?
+    val queueDatas: List<QueueData>,
 ) {
     @Serializable
     data class QueueData(
-        val content: NextResponse.MusicQueueRenderer.Content.PlaylistPanelRenderer.Content?
+        val content: PlaylistPanelRenderer.Content,
     )
 }

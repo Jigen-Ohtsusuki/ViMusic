@@ -6,10 +6,12 @@ import it.vfsfitvnm.vimusic.models.Playlist
 import it.vfsfitvnm.vimusic.models.Song
 import it.vfsfitvnm.vimusic.models.SongPlaylistMap
 import it.vfsfitvnm.vimusic.transaction
-import it.vfsfitvnm.providers.innertube.Innertube
-import it.vfsfitvnm.providers.innertube.models.bodies.SearchBody
-import it.vfsfitvnm.providers.innertube.requests.searchPage
-import it.vfsfitvnm.providers.innertube.utils.from
+// Import the new YouTube object for API calls
+import it.vfsfitvnm.providers.innertube.YouTube
+// Import the new SongItem model from providers.innertube.models
+import it.vfsfitvnm.providers.innertube.models.SongItem as InnertubeSongItem // Alias to avoid conflict with vimusic.models.Song
+// Import the formatAsDuration utility from vimusic.utils
+import it.vfsfitvnm.vimusic.utils.formatAsDuration
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -61,26 +63,29 @@ class PlaylistImporter {
                                 return@async localSong
                             }
 
-                            val searchCandidates = Innertube.searchPage(
-                                body = SearchBody(query = searchQuery, params = Innertube.SearchFilter.Song.value)
-                            ) { content ->
-                                content.musicResponsiveListItemRenderer?.let { renderer ->
-                                    Innertube.SongItem.from(renderer)
-                                }
-                            }?.getOrNull()?.items
+                            // **FIXED:** Changed 'Youtube' to 'YouTube'
+                            val searchResult = YouTube.search(
+                                query = searchQuery,
+                                // **FIXED:** Changed 'YoutubeFilter' to 'YouTube.SearchFilter'
+                                filter = YouTube.SearchFilter.FILTER_SONG
+                            ).getOrNull() // Get the SearchResult object or null
+
+                            // **FIXED:** Ensure searchCandidates is of the correct type
+                            val searchCandidates = searchResult?.items?.filterIsInstance<InnertubeSongItem>()
 
                             if (searchCandidates.isNullOrEmpty()) {
+                                Log.w("PlaylistImporter", "No search results found for \"$searchQuery\"")
                                 return@async null
                             }
 
                             val bestMatch = findBestMatchInResults(track, searchCandidates)
                             if (bestMatch != null) {
                                 Song(
-                                    id = bestMatch.info?.endpoint?.videoId ?: "",
-                                    title = bestMatch.info?.name ?: "",
-                                    artistsText = bestMatch.authors?.joinToString { it.name.toString() },
-                                    durationText = bestMatch.durationText,
-                                    thumbnailUrl = bestMatch.thumbnail?.url
+                                    id = bestMatch.id,
+                                    title = bestMatch.title,
+                                    artistsText = bestMatch.artists.joinToString { it.name },
+                                    durationText = bestMatch.duration?.let { formatAsDuration(it.toLong()) },
+                                    thumbnailUrl = bestMatch.thumbnail
                                 ).takeIf { it.id.isNotEmpty() }
                             } else {
                                 Log.w("PlaylistImporter", "No suitable match found for \"$searchQuery\"")
@@ -124,7 +129,7 @@ class PlaylistImporter {
         }
     }
 
-    private fun findBestMatchInResults(importTrack: SongImportInfo, candidates: List<Innertube.SongItem>): Innertube.SongItem? {
+    private fun findBestMatchInResults(importTrack: SongImportInfo, candidates: List<InnertubeSongItem>): InnertubeSongItem? {
         val scoredCandidates = candidates.map { candidate ->
             candidate to calculateMatchScore(importTrack, candidate)
         }
@@ -135,9 +140,9 @@ class PlaylistImporter {
             ?.first
     }
 
-    private fun calculateMatchScore(importTrack: SongImportInfo, candidate: Innertube.SongItem): Int {
-        val candidateTitle = candidate.info?.name?.lowercase() ?: return 0
-        val candidateArtists = candidate.authors?.joinToString { it.name.toString() }?.lowercase() ?: ""
+    private fun calculateMatchScore(importTrack: SongImportInfo, candidate: InnertubeSongItem): Int {
+        val candidateTitle = candidate.title.lowercase()
+        val candidateArtists = candidate.artists.joinToString { it.name }.lowercase()
         val primaryImportArtist = importTrack.artist.split(",")[0].trim().lowercase()
 
         if (!candidateArtists.contains(primaryImportArtist)) {

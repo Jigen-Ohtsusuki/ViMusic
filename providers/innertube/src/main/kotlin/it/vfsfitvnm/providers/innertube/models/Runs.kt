@@ -4,39 +4,18 @@ import kotlinx.serialization.Serializable
 
 @Serializable
 data class Runs(
-    val runs: List<Run> = listOf()
-) {
-    companion object {
-        const val SEPARATOR = " • "
-    }
+    val runs: List<Run>?,
+)
 
-    val text: String
-        get() = runs.joinToString("") { it.text.orEmpty() }
+@Serializable
+data class Run(
+    val text: String,
+    val navigationEndpoint: NavigationEndpoint?,
+)
 
-    fun splitBySeparator(): List<List<Run>> {
-        return runs.flatMapIndexed { index, run ->
-            when {
-                index == 0 || index == runs.lastIndex -> listOf(index)
-                run.text == SEPARATOR -> listOf(index - 1, index + 1)
-                else -> emptyList()
-            }
-        }.windowed(size = 2, step = 2) { (from, to) -> runs.slice(from..to) }.let {
-            it.ifEmpty {
-                listOf(runs)
-            }
-        }
-    }
-
-    @Serializable
-    data class Run(
-        val text: String?,
-        val navigationEndpoint: NavigationEndpoint?
-    )
-}
-
-fun List<Runs.Run>.splitBySeparator(): List<List<Runs.Run>> {
-    val res = mutableListOf<List<Runs.Run>>()
-    var tmp = mutableListOf<Runs.Run>()
+fun List<Run>.splitBySeparator(): List<List<Run>> {
+    val res = mutableListOf<List<Run>>()
+    var tmp = mutableListOf<Run>()
     forEach { run ->
         if (run.text == " • ") {
             res.add(tmp)
@@ -49,4 +28,16 @@ fun List<Runs.Run>.splitBySeparator(): List<List<Runs.Run>> {
     return res
 }
 
-fun <T> List<T>.oddElements() = filterIndexed { index, _ -> index % 2 == 0 }
+fun List<List<Run>>.clean(): List<List<Run>> =
+    if (getOrNull(0)?.getOrNull(0)?.navigationEndpoint != null ||
+        (getOrNull(0)?.getOrNull(0)?.text?.contains(regex = Regex("[&,]"))) != false
+    ) {
+        this
+    } else {
+        this.drop(1)
+    }
+
+fun List<Run>.oddElements() =
+    filterIndexed { index, _ ->
+        index % 2 == 0
+    }

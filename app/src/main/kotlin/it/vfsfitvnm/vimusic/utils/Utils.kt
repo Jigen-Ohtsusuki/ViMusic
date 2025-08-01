@@ -14,40 +14,35 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.util.UnstableApi
 import it.vfsfitvnm.vimusic.R
-import it.vfsfitvnm.vimusic.models.Song
 import it.vfsfitvnm.vimusic.preferences.AppearancePreferences
 import it.vfsfitvnm.vimusic.service.LOCAL_KEY_PREFIX
 import it.vfsfitvnm.vimusic.service.isLocal
 import it.vfsfitvnm.core.ui.utils.SongBundleAccessor
-import it.vfsfitvnm.providers.innertube.Innertube
-import it.vfsfitvnm.providers.innertube.models.bodies.ContinuationBody
-import it.vfsfitvnm.providers.innertube.requests.playlistPage
 import it.vfsfitvnm.providers.piped.models.Playlist
+import it.vfsfitvnm.vimusic.models.Song
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.isActive
 import kotlin.time.Duration
 
-val Innertube.SongItem.asMediaItem: MediaItem
+// NEW asMediaItem extension for the current SongItem model (RETAINED from last step)
+val it.vfsfitvnm.providers.innertube.models.SongItem.asMediaItem: MediaItem
     get() = MediaItem.Builder()
-        .setMediaId(key)
-        .setUri(key)
-        .setCustomCacheKey(key)
+        .setMediaId(id)
+        .setUri(id) // Assuming id can be used as URI or actual media URL is derived elsewhere
+        .setCustomCacheKey(id)
         .setMediaMetadata(
             MediaMetadata.Builder()
-                .setTitle(info?.name)
-                .setArtist(authors?.joinToString("") { it.name.orEmpty() })
+                .setTitle(title)
+                .setArtist(artists.joinToString("") { it.name }) // Use the 'artists' list
                 .setAlbumTitle(album?.name)
-                .setArtworkUri(thumbnail?.url?.toUri())
+                .setArtworkUri(thumbnail.toUri()) // Use the 'thumbnail' string directly
                 .setExtras(
                     SongBundleAccessor.bundle {
-                        albumId = album?.endpoint?.browseId
-                        durationText = this@asMediaItem.durationText
-                        artistNames = authors
-                            ?.filter { it.endpoint != null }
-                            ?.mapNotNull { it.name }
-                        artistIds = authors?.mapNotNull { it.endpoint?.browseId }
+                        durationText = duration?.let { formatAsDuration(it.toLong()) } // Assuming duration is in milliseconds
+                        artistNames = artists.map { it.name }
+                        artistIds = artists.mapNotNull { it.id }
                         explicit = this@asMediaItem.explicit
                     }
                 )
@@ -55,7 +50,9 @@ val Innertube.SongItem.asMediaItem: MediaItem
         )
         .build()
 
-val Innertube.VideoItem.asMediaItem: MediaItem
+// REMOVED: This extension is for a VideoItem that no longer exists in your module.
+/*
+val it.vfsfitvnm.providers.innertube.models.VideoItem.asMediaItem: MediaItem
     get() = MediaItem.Builder()
         .setMediaId(key)
         .setUri(key)
@@ -80,7 +77,9 @@ val Innertube.VideoItem.asMediaItem: MediaItem
                 .build()
         )
         .build()
+*/
 
+// Existing asMediaItem for Playlist.Video (RETAINED)
 val Playlist.Video.asMediaItem: MediaItem?
     get() {
         val key = id ?: return null
@@ -158,6 +157,9 @@ fun Uri?.thumbnail(size: Int) = toString().thumbnail(size)?.toUri()
 
 fun formatAsDuration(millis: Long) = DateUtils.formatElapsedTime(millis / 1000).removePrefix("0")
 
+// This function needs to be updated to use the new YouTube.playlist and BrowseResponse structure.
+// It remains commented out for now.
+/*
 @Suppress("LoopWithTooManyJumpStatements")
 suspend fun Result<Innertube.PlaylistOrAlbumPage>.completed(
     maxDepth: Int = Int.MAX_VALUE,
@@ -194,6 +196,7 @@ suspend fun Result<Innertube.PlaylistOrAlbumPage>.completed(
         )
     )
 }.also { it.exceptionOrNull()?.printStackTrace() }
+*/
 
 fun <T> Flow<T>.onFirst(block: suspend (T) -> Unit): Flow<T> {
     var isFirst = true

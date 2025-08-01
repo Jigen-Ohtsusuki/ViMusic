@@ -11,7 +11,7 @@ import androidx.compose.ui.unit.dp
 import it.vfsfitvnm.vimusic.models.Album
 import it.vfsfitvnm.vimusic.utils.semiBold
 import it.vfsfitvnm.core.ui.LocalAppearance
-import it.vfsfitvnm.providers.innertube.Innertube
+import it.vfsfitvnm.providers.innertube.requests.PlaylistPage
 
 @Composable
 fun PlaylistInfo(
@@ -54,14 +54,15 @@ fun PlaylistInfo(
 
 @Composable
 fun PlaylistInfo(
-    playlist: Innertube.PlaylistOrAlbumPage?,
+    playlist: PlaylistPage?,
     modifier: Modifier = Modifier
 ) = PlaylistInfo(
-    description = playlist?.description,
-    year = playlist?.year,
-    otherInfo = playlist?.otherInfo,
+    description = null,
+    year = null,
+    otherInfo = playlist?.playlist?.songCountText,
     modifier = modifier
 )
+
 
 @Composable
 fun PlaylistInfo(

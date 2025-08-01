@@ -57,9 +57,24 @@ import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.core.net.toUri
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import androidx.media3.common.Timeline
+import com.valentinilk.shimmer.shimmer
+import it.vfsfitvnm.compose.persist.persist
+import it.vfsfitvnm.compose.reordering.animateItemPlacement
+import it.vfsfitvnm.compose.reordering.draggedItem
+import it.vfsfitvnm.compose.reordering.rememberReorderingState
+import it.vfsfitvnm.core.data.enums.PlaylistSortBy
+import it.vfsfitvnm.core.data.enums.SortOrder
+import it.vfsfitvnm.core.ui.Dimensions
+import it.vfsfitvnm.core.ui.LocalAppearance
+import it.vfsfitvnm.core.ui.onOverlay
+import it.vfsfitvnm.core.ui.utils.roundedShape
+import it.vfsfitvnm.providers.innertube.YouTube
+import it.vfsfitvnm.providers.innertube.models.WatchEndpoint
 import it.vfsfitvnm.vimusic.Database
 import it.vfsfitvnm.vimusic.R
 import it.vfsfitvnm.vimusic.models.Playlist
@@ -88,7 +103,6 @@ import it.vfsfitvnm.vimusic.ui.items.SongItemPlaceholder
 import it.vfsfitvnm.vimusic.ui.modifiers.swipeToClose
 import it.vfsfitvnm.vimusic.utils.DisposableListener
 import it.vfsfitvnm.vimusic.utils.addNext
-import it.vfsfitvnm.vimusic.utils.asMediaItem
 import it.vfsfitvnm.vimusic.utils.enqueue
 import it.vfsfitvnm.vimusic.utils.medium
 import it.vfsfitvnm.vimusic.utils.onFirst
@@ -97,24 +111,11 @@ import it.vfsfitvnm.vimusic.utils.shouldBePlaying
 import it.vfsfitvnm.vimusic.utils.shuffleQueue
 import it.vfsfitvnm.vimusic.utils.smoothScrollToTop
 import it.vfsfitvnm.vimusic.utils.windows
-import it.vfsfitvnm.compose.persist.persist
-import it.vfsfitvnm.compose.reordering.animateItemPlacement
-import it.vfsfitvnm.compose.reordering.draggedItem
-import it.vfsfitvnm.compose.reordering.rememberReorderingState
-import it.vfsfitvnm.core.data.enums.PlaylistSortBy
-import it.vfsfitvnm.core.data.enums.SortOrder
-import it.vfsfitvnm.core.ui.Dimensions
-import it.vfsfitvnm.core.ui.LocalAppearance
-import it.vfsfitvnm.core.ui.onOverlay
-import it.vfsfitvnm.core.ui.utils.roundedShape
-import it.vfsfitvnm.providers.innertube.Innertube
-import it.vfsfitvnm.providers.innertube.models.bodies.NextBody
-import it.vfsfitvnm.providers.innertube.requests.nextPage
-import com.valentinilk.shimmer.shimmer
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.time.Duration.Companion.milliseconds
+import it.vfsfitvnm.providers.innertube.models.SongItem as InnertubeSongItem
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -170,14 +171,14 @@ fun Queue(
     }
 
     LaunchedEffect(mediaItemIndex, shouldLoadSuggestions) {
-        if (shouldLoadSuggestions) withContext(Dispatchers.IO) {
-            suggestions = runCatching {
-                Innertube.nextPage(
-                    NextBody(videoId = windows[mediaItemIndex].mediaItem.mediaId)
-                )?.mapCatching { page ->
-                    page.itemsPage?.items?.map { it.asMediaItem }
-                }
-            }.also { it.exceptionOrNull()?.printStackTrace() }.getOrNull()
+        if (shouldLoadSuggestions && mediaItemIndex != -1) {
+            withContext(Dispatchers.IO) {
+                val currentVideoId = windows[mediaItemIndex].mediaItem.mediaId
+                suggestions = YouTube.next(WatchEndpoint(videoId = currentVideoId))
+                    .map { nextResult ->
+                        nextResult.items.map { it.asMediaItem() }
+                    }
+            }
         }
     }
 
@@ -240,7 +241,7 @@ fun Queue(
         }
     ) {
         val musicBarsTransition = updateTransition(
-            targetState = if (reorderingState.isDragging) -1L else mediaItemIndex,
+            targetState = if (reorderingState.isDragging) -1L else mediaItemIndex.toLong(),
             label = ""
         )
 
@@ -276,7 +277,7 @@ fun Queue(
                                 thumbnailSize = Dimensions.thumbnails.song,
                                 onThumbnailContent = {
                                     musicBarsTransition.AnimatedVisibility(
-                                        visible = { it == window.firstPeriodIndex },
+                                        visible = { it == window.firstPeriodIndex.toLong() },
                                         enter = fadeIn(tween(800)),
                                         exit = fadeOut(tween(800))
                                     ) {
@@ -449,7 +450,6 @@ fun Queue(
                     .height(64.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // 1. Left container with a weight of 1
                 Box(
                     modifier = Modifier.weight(1f),
                     contentAlignment = Alignment.CenterStart
@@ -463,7 +463,6 @@ fun Queue(
                     )
                 }
 
-                // 2. Center item with no weight
                 Image(
                     painter = painterResource(R.drawable.chevron_down),
                     contentDescription = null,
@@ -471,7 +470,6 @@ fun Queue(
                     modifier = Modifier.size(18.dp)
                 )
 
-                // 3. Right container with a weight of 1
                 Box(
                     modifier = Modifier.weight(1f),
                     contentAlignment = Alignment.CenterEnd
@@ -593,6 +591,20 @@ fun Queue(
             }
         }
     }
+}
+
+private fun InnertubeSongItem.asMediaItem(): MediaItem {
+    return MediaItem.Builder()
+        .setMediaId(id)
+        .setMediaMetadata(
+            MediaMetadata.Builder()
+                .setTitle(title)
+                .setArtist(artists.joinToString { it.name })
+                .setAlbumTitle(album?.name)
+                .setArtworkUri(thumbnail.toUri())
+                .build()
+        )
+        .build()
 }
 
 @JvmInline

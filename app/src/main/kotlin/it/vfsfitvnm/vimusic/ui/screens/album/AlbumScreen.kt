@@ -3,6 +3,9 @@ package it.vfsfitvnm.vimusic.ui.screens.album
 import android.content.Intent
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -13,27 +16,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
-import it.vfsfitvnm.vimusic.Database
-import it.vfsfitvnm.vimusic.R
-import it.vfsfitvnm.vimusic.models.Album
-import it.vfsfitvnm.vimusic.models.Song
-import it.vfsfitvnm.vimusic.models.SongAlbumMap
-import it.vfsfitvnm.vimusic.query
-import it.vfsfitvnm.vimusic.transaction
-import it.vfsfitvnm.vimusic.ui.components.themed.Header
-import it.vfsfitvnm.vimusic.ui.components.themed.HeaderIconButton
-import it.vfsfitvnm.vimusic.ui.components.themed.HeaderPlaceholder
-import it.vfsfitvnm.vimusic.ui.components.themed.PlaylistInfo
-import it.vfsfitvnm.vimusic.ui.components.themed.Scaffold
-import it.vfsfitvnm.vimusic.ui.components.themed.adaptiveThumbnailContent
-import it.vfsfitvnm.vimusic.ui.items.AlbumItem
-import it.vfsfitvnm.vimusic.ui.items.AlbumItemPlaceholder
-import it.vfsfitvnm.vimusic.ui.screens.GlobalRoutes
-import it.vfsfitvnm.vimusic.ui.screens.Route
-import it.vfsfitvnm.vimusic.ui.screens.albumRoute
-import it.vfsfitvnm.vimusic.ui.screens.searchresult.ItemsPage
-import it.vfsfitvnm.vimusic.utils.asMediaItem
-import it.vfsfitvnm.vimusic.utils.completed
+import com.valentinilk.shimmer.shimmer
 import it.vfsfitvnm.compose.persist.PersistMapCleanup
 import it.vfsfitvnm.compose.persist.persist
 import it.vfsfitvnm.compose.persist.persistList
@@ -41,10 +24,25 @@ import it.vfsfitvnm.compose.routing.RouteHandler
 import it.vfsfitvnm.core.ui.Dimensions
 import it.vfsfitvnm.core.ui.LocalAppearance
 import it.vfsfitvnm.core.ui.utils.stateFlowSaver
-import it.vfsfitvnm.providers.innertube.Innertube
-import it.vfsfitvnm.providers.innertube.models.bodies.BrowseBody
-import it.vfsfitvnm.providers.innertube.requests.albumPage
-import com.valentinilk.shimmer.shimmer
+import it.vfsfitvnm.providers.innertube.YouTube
+import it.vfsfitvnm.providers.innertube.models.AlbumItem as InnertubeAlbumItem
+import it.vfsfitvnm.providers.innertube.models.SongItem as InnertubeSongItem
+import it.vfsfitvnm.providers.innertube.requests.AlbumPage
+import it.vfsfitvnm.vimusic.Database
+import it.vfsfitvnm.vimusic.R
+import it.vfsfitvnm.vimusic.models.Album
+import it.vfsfitvnm.vimusic.models.Song
+import it.vfsfitvnm.vimusic.models.SongAlbumMap
+import it.vfsfitvnm.vimusic.query
+import it.vfsfitvnm.vimusic.transaction
+import it.vfsfitvnm.vimusic.ui.components.themed.*
+import it.vfsfitvnm.vimusic.ui.items.AlbumItem
+import it.vfsfitvnm.vimusic.ui.items.AlbumItemPlaceholder
+import it.vfsfitvnm.vimusic.ui.screens.GlobalRoutes
+import it.vfsfitvnm.vimusic.ui.screens.Route
+import it.vfsfitvnm.vimusic.ui.screens.albumRoute
+import it.vfsfitvnm.vimusic.ui.screens.searchresult.ItemsPage
+import it.vfsfitvnm.vimusic.utils.formatAsDuration
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -55,6 +53,17 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.withContext
 
+fun InnertubeSongItem.toSong(): Song {
+    return Song(
+        id = this.id,
+        title = this.title,
+        artistsText = this.artists.joinToString { it.name },
+        durationText = this.duration?.let { formatAsDuration(it.toLong()) },
+        thumbnailUrl = this.thumbnail,
+        explicit = this.explicit,
+    )
+}
+
 @Route
 @Composable
 fun AlbumScreen(browseId: String) {
@@ -64,7 +73,7 @@ fun AlbumScreen(browseId: String) {
     val tabIndex by tabIndexState.collectAsState()
 
     var album by persist<Album?>("album/$browseId/album")
-    var albumPage by persist<Innertube.PlaylistOrAlbumPage?>("album/$browseId/albumPage")
+    var albumPage by persist<AlbumPage?>("album/$browseId/albumPage")
     var songs by persistList<Song>("album/$browseId/songs")
 
     PersistMapCleanup(prefix = "album/$browseId/")
@@ -85,9 +94,8 @@ fun AlbumScreen(browseId: String) {
                 if (currentAlbum?.timestamp != null && currentSongs.isNotEmpty()) return@combine
 
                 withContext(Dispatchers.IO) {
-                    Innertube.albumPage(BrowseBody(browseId = browseId))
-                        ?.completed()
-                        ?.onSuccess { newAlbumPage ->
+                    YouTube.album(browseId = browseId)
+                        .onSuccess { newAlbumPage ->
                             albumPage = newAlbumPage
 
                             transaction {
@@ -96,32 +104,31 @@ fun AlbumScreen(browseId: String) {
                                 Database.instance.upsert(
                                     album = Album(
                                         id = browseId,
-                                        title = newAlbumPage.title,
-                                        description = newAlbumPage.description,
-                                        thumbnailUrl = newAlbumPage.thumbnail?.url,
-                                        year = newAlbumPage.year,
-                                        authorsText = newAlbumPage.authors
-                                            ?.joinToString("") { it.name.orEmpty() },
-                                        shareUrl = newAlbumPage.url,
+                                        title = newAlbumPage.album.title,
+                                        description = null,
+                                        thumbnailUrl = newAlbumPage.album.thumbnail,
+                                        year = newAlbumPage.album.year?.toString(),
+                                        authorsText = newAlbumPage.album.artists
+                                            ?.joinToString("") { it.name },
+                                        shareUrl = newAlbumPage.album.shareLink,
                                         timestamp = System.currentTimeMillis(),
                                         bookmarkedAt = album?.bookmarkedAt,
-                                        otherInfo = newAlbumPage.otherInfo
+                                        otherInfo = null
                                     ),
                                     songAlbumMaps = newAlbumPage
-                                        .songsPage
-                                        ?.items
-                                        ?.map { it.asMediaItem }
-                                        ?.onEach { Database.instance.insert(it) }
-                                        ?.mapIndexed { position, mediaItem ->
+                                        .songs
+                                        .map { it.toSong() }
+                                        .onEach { Database.instance.insert(it) }
+                                        .mapIndexed { position, localSong ->
                                             SongAlbumMap(
-                                                songId = mediaItem.mediaId,
+                                                songId = localSong.id,
                                                 albumId = browseId,
                                                 position = position
                                             )
-                                        } ?: emptyList()
+                                        }
                                 )
                             }
-                        }?.exceptionOrNull()?.printStackTrace()
+                        }.exceptionOrNull()?.printStackTrace()
                 }
             }.collect()
     }
@@ -206,39 +213,28 @@ fun AlbumScreen(browseId: String) {
                             headerContent = headerContent,
                             thumbnailContent = thumbnailContent,
                             afterHeaderContent = {
-                                if (album == null) PlaylistInfo(playlist = albumPage)
+                                if (album == null) PlaylistInfo(playlist = null as Album?)
                                 else PlaylistInfo(playlist = album)
                             }
                         )
 
                         1 -> {
-                            ItemsPage(
-                                tag = "album/$browseId/alternatives",
-                                header = headerContent,
-                                initialPlaceholderCount = 1,
-                                continuationPlaceholderCount = 1,
-                                emptyItemsText = stringResource(R.string.no_alternative_version),
-                                provider = albumPage?.let {
-                                    {
-                                        Result.success(
-                                            Innertube.ItemsPage(
-                                                items = albumPage?.otherVersions,
-                                                continuation = null
-                                            )
+                            // Replaced ItemsPage with a manual check and LazyRow.
+                            if (albumPage?.otherVersions?.isNotEmpty() == true) {
+                                LazyRow {
+                                    items(albumPage!!.otherVersions) { item: InnertubeAlbumItem ->
+                                        AlbumItem(
+                                            album = item,
+                                            thumbnailSize = Dimensions.thumbnails.album,
+                                            modifier = Modifier.clickable { albumRoute(item.browseId) }
                                         )
                                     }
-                                },
-                                itemContent = { album ->
-                                    AlbumItem(
-                                        album = album,
-                                        thumbnailSize = Dimensions.thumbnails.album,
-                                        modifier = Modifier.clickable { albumRoute(album.key) }
-                                    )
-                                },
-                                itemPlaceholderContent = {
-                                    AlbumItemPlaceholder(thumbnailSize = Dimensions.thumbnails.album)
                                 }
-                            )
+                            } else {
+                                Text(
+                                    text = stringResource(R.string.no_alternative_version)
+                                )
+                            }
                         }
                     }
                 }

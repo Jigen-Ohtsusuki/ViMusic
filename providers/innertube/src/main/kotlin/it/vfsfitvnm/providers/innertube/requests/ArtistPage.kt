@@ -1,135 +1,172 @@
 package it.vfsfitvnm.providers.innertube.requests
 
-import it.vfsfitvnm.providers.innertube.Innertube
-import it.vfsfitvnm.providers.innertube.models.BrowseResponse
-import it.vfsfitvnm.providers.innertube.models.Context
+import it.vfsfitvnm.providers.innertube.models.Album
+import it.vfsfitvnm.providers.innertube.models.AlbumItem
+import it.vfsfitvnm.providers.innertube.models.Artist
+import it.vfsfitvnm.providers.innertube.models.ArtistItem
+import it.vfsfitvnm.providers.innertube.models.BrowseEndpoint
 import it.vfsfitvnm.providers.innertube.models.MusicCarouselShelfRenderer
+import it.vfsfitvnm.providers.innertube.models.MusicResponsiveListItemRenderer
 import it.vfsfitvnm.providers.innertube.models.MusicShelfRenderer
-import it.vfsfitvnm.providers.innertube.models.bodies.BrowseBody
-import it.vfsfitvnm.providers.innertube.utils.findSectionByTitle
-import it.vfsfitvnm.providers.innertube.utils.from
-import it.vfsfitvnm.providers.utils.runCatchingCancellable
-import io.ktor.client.call.body
-import io.ktor.client.request.post
-import io.ktor.client.request.setBody
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.CoroutineStart
-import kotlinx.coroutines.async
-import kotlinx.coroutines.currentCoroutineContext
+import it.vfsfitvnm.providers.innertube.models.MusicTwoRowItemRenderer
+import it.vfsfitvnm.providers.innertube.models.PlaylistItem
+import it.vfsfitvnm.providers.innertube.models.SectionListRenderer
+import it.vfsfitvnm.providers.innertube.models.SongItem
+import it.vfsfitvnm.providers.innertube.models.YTItem
+import it.vfsfitvnm.providers.innertube.models.filterExplicit
+import it.vfsfitvnm.providers.innertube.models.getItems
+import it.vfsfitvnm.providers.innertube.models.oddElements
 
-suspend fun Innertube.artistPage(body: BrowseBody) = runCatchingCancellable {
-    val ctx = currentCoroutineContext()
-    val response = client.post(BROWSE) {
-        setBody(body)
-        mask("contents,header")
-    }.body<BrowseResponse>()
+data class ArtistSection(
+    val title: String,
+    val items: List<YTItem>,
+    val moreEndpoint: BrowseEndpoint?,
+)
 
-    val responseNoLang by lazy {
-        CoroutineScope(ctx).async(start = CoroutineStart.LAZY) {
-            client.post(BROWSE) {
-                setBody(body.copy(context = Context.DefaultWebNoLang))
-                mask("contents,header")
-            }.body<BrowseResponse>()
+data class ArtistPage(
+    val artist: ArtistItem,
+    val sections: List<ArtistSection>,
+    val description: String?,
+) {
+    companion object {
+        fun fromSectionListRendererContent(content: SectionListRenderer.Content): ArtistSection? {
+            return when {
+                content.musicShelfRenderer != null -> fromMusicShelfRenderer(content.musicShelfRenderer)
+                content.musicCarouselShelfRenderer != null -> fromMusicCarouselShelfRenderer(content.musicCarouselShelfRenderer)
+                else -> null
+            }
+        }
+
+        private fun fromMusicShelfRenderer(renderer: MusicShelfRenderer): ArtistSection? {
+            return ArtistSection(
+                title = renderer.title?.runs?.firstOrNull()?.text ?: "",
+                items = renderer.contents?.getItems()?.mapNotNull {
+                    fromMusicResponsiveListItemRenderer(it)
+                }?.ifEmpty { null } ?: return null,
+                moreEndpoint = renderer.title?.runs?.firstOrNull()?.navigationEndpoint?.browseEndpoint
+            )
+        }
+
+        private fun fromMusicCarouselShelfRenderer(renderer: MusicCarouselShelfRenderer): ArtistSection? {
+            return ArtistSection(
+                title = renderer.header?.musicCarouselShelfBasicHeaderRenderer?.title?.runs?.firstOrNull()?.text ?: return null,
+                items = renderer.contents.mapNotNull {
+                    it.musicTwoRowItemRenderer?.let { renderer ->
+                        fromMusicTwoRowItemRenderer(renderer)
+                    }
+                }.ifEmpty { null } ?: return null,
+                moreEndpoint = renderer.header.musicCarouselShelfBasicHeaderRenderer.moreContentButton?.buttonRenderer?.navigationEndpoint?.browseEndpoint
+            )
+        }
+
+        private fun fromMusicResponsiveListItemRenderer(renderer: MusicResponsiveListItemRenderer): SongItem? {
+            return SongItem(
+                id = renderer.playlistItemData?.videoId ?: return null,
+                title = renderer.flexColumns.firstOrNull()
+                    ?.musicResponsiveListItemFlexColumnRenderer?.text?.runs?.firstOrNull()
+                    ?.text ?: return null,
+                artists = PageHelper.extractRuns(renderer.flexColumns, "MUSIC_PAGE_TYPE_ARTIST")
+                    .ifEmpty { renderer.flexColumns.getOrNull(1)?.musicResponsiveListItemFlexColumnRenderer?.text?.runs }
+                    ?.oddElements()?.map {
+                        Artist(
+                            name = it.text,
+                            id = it.navigationEndpoint?.browseEndpoint?.browseId
+                        )
+                    } ?: return null,
+                album = PageHelper.extractRuns(renderer.flexColumns, "MUSIC_PAGE_TYPE_ALBUM")
+                    .ifEmpty { renderer.flexColumns.getOrNull(3)?.musicResponsiveListItemFlexColumnRenderer?.text?.runs }
+                    ?.firstOrNull()?.let {
+                        Album(
+                            name = it.text,
+                            id = it.navigationEndpoint?.browseEndpoint?.browseId ?: return@let null
+                        )
+                    },
+                duration = null,
+                thumbnail = renderer.thumbnail?.musicThumbnailRenderer?.getThumbnailUrl() ?: return null,
+                explicit = renderer.badges?.find {
+                    it.musicInlineBadgeRenderer?.icon?.iconType == "MUSIC_EXPLICIT_BADGE"
+                } != null,
+                endpoint = renderer.overlay?.musicItemThumbnailOverlayRenderer?.content
+                    ?.musicPlayButtonRenderer?.playNavigationEndpoint?.watchEndpoint
+            )
+        }
+
+        private fun fromMusicTwoRowItemRenderer(renderer: MusicTwoRowItemRenderer): YTItem? {
+            return when {
+                renderer.isSong -> {
+                    SongItem(
+                        id = renderer.navigationEndpoint.watchEndpoint?.videoId ?: return null,
+                        title = renderer.title.runs?.firstOrNull()?.text ?: return null,
+                        artists = listOfNotNull(renderer.subtitle?.runs?.firstOrNull()?.let {
+                            Artist(
+                                name = it.text,
+                                id = it.navigationEndpoint?.browseEndpoint?.browseId
+                            )
+                        }),
+                        album = null,
+                        duration = null,
+                        thumbnail = renderer.thumbnailRenderer.musicThumbnailRenderer?.getThumbnailUrl() ?: return null,
+                        explicit = renderer.subtitleBadges?.find {
+                            it.musicInlineBadgeRenderer?.icon?.iconType == "MUSIC_EXPLICIT_BADGE"
+                        } != null
+                    )
+                }
+
+                renderer.isAlbum -> {
+                    AlbumItem(
+                        browseId = renderer.navigationEndpoint.browseEndpoint?.browseId ?: return null,
+                        playlistId = renderer.thumbnailOverlay?.musicItemThumbnailOverlayRenderer?.content
+                            ?.musicPlayButtonRenderer?.playNavigationEndpoint
+                            ?.anyWatchEndpoint?.playlistId ?: return null,
+                        title = renderer.title.runs?.firstOrNull()?.text ?: return null,
+                        artists = null,
+                        year = renderer.subtitle?.runs?.lastOrNull()?.text?.toIntOrNull(),
+                        thumbnail = renderer.thumbnailRenderer.musicThumbnailRenderer?.getThumbnailUrl() ?: return null,
+                        explicit = renderer.subtitleBadges?.find {
+                            it.musicInlineBadgeRenderer?.icon?.iconType == "MUSIC_EXPLICIT_BADGE"
+                        } != null
+                    )
+                }
+
+                renderer.isPlaylist -> {
+                    PlaylistItem(
+                        id = renderer.navigationEndpoint.browseEndpoint?.browseId?.removePrefix("VL") ?: return null,
+                        title = renderer.title.runs?.firstOrNull()?.text ?: return null,
+                        author = Artist(
+                            name = renderer.subtitle?.runs?.lastOrNull()?.text ?: return null,
+                            id = null
+                        ),
+                        songCountText = null,
+                        thumbnail = renderer.thumbnailRenderer.musicThumbnailRenderer?.getThumbnailUrl() ?: return null,
+                        playEndpoint = renderer.thumbnailOverlay
+                            ?.musicItemThumbnailOverlayRenderer?.content
+                            ?.musicPlayButtonRenderer?.playNavigationEndpoint
+                            ?.watchPlaylistEndpoint ?: return null,
+                        shuffleEndpoint = renderer.menu?.menuRenderer?.items?.find {
+                            it.menuNavigationItemRenderer?.icon?.iconType == "MUSIC_SHUFFLE"
+                        }?.menuNavigationItemRenderer?.navigationEndpoint?.watchPlaylistEndpoint ?: return null,
+                        radioEndpoint = renderer.menu?.menuRenderer?.items?.find {
+                            it.menuNavigationItemRenderer?.icon?.iconType == "MIX"
+                        }?.menuNavigationItemRenderer?.navigationEndpoint?.watchPlaylistEndpoint ?: return null
+                    )
+                }
+
+                renderer.isArtist -> {
+                    ArtistItem(
+                        id = renderer.navigationEndpoint.browseEndpoint?.browseId ?: return null,
+                        title = renderer.title.runs?.lastOrNull()?.text ?: return null,
+                        thumbnail = renderer.thumbnailRenderer.musicThumbnailRenderer?.getThumbnailUrl() ?: return null,
+                        shuffleEndpoint = renderer.menu?.menuRenderer?.items?.find {
+                            it.menuNavigationItemRenderer?.icon?.iconType == "MUSIC_SHUFFLE"
+                        }?.menuNavigationItemRenderer?.navigationEndpoint?.watchPlaylistEndpoint ?: return null,
+                        radioEndpoint = renderer.menu?.menuRenderer?.items?.find {
+                            it.menuNavigationItemRenderer?.icon?.iconType == "MIX"
+                        }?.menuNavigationItemRenderer?.navigationEndpoint?.watchPlaylistEndpoint ?: return null
+                    )
+                }
+
+                else -> null
+            }
         }
     }
-
-    suspend fun findSectionByTitle(text: String) = response
-        .contents
-        ?.singleColumnBrowseResultsRenderer
-        ?.tabs
-        ?.get(0)
-        ?.tabRenderer
-        ?.content
-        ?.sectionListRenderer
-        ?.findSectionByTitle(text) ?: responseNoLang.await()
-        .contents
-        ?.singleColumnBrowseResultsRenderer
-        ?.tabs
-        ?.get(0)
-        ?.tabRenderer
-        ?.content
-        ?.sectionListRenderer
-        ?.findSectionByTitle(text)
-
-    val songsSection = findSectionByTitle("Songs")?.musicShelfRenderer
-    val albumsSection = findSectionByTitle("Albums")?.musicCarouselShelfRenderer
-    val singlesSection = (findSectionByTitle("Singles & EPs") ?: findSectionByTitle("Singles"))
-        ?.musicCarouselShelfRenderer
-
-    Innertube.ArtistPage(
-        name = response
-            .header
-            ?.musicImmersiveHeaderRenderer
-            ?.title
-            ?.text,
-        description = response
-            .header
-            ?.musicImmersiveHeaderRenderer
-            ?.description
-            ?.text,
-        thumbnail = (
-            response
-                .header
-                ?.musicImmersiveHeaderRenderer
-                ?.foregroundThumbnail
-                ?: response
-                    .header
-                    ?.musicImmersiveHeaderRenderer
-                    ?.thumbnail
-            )
-            ?.musicThumbnailRenderer
-            ?.thumbnail
-            ?.thumbnails
-            ?.getOrNull(0),
-        shuffleEndpoint = response
-            .header
-            ?.musicImmersiveHeaderRenderer
-            ?.playButton
-            ?.buttonRenderer
-            ?.navigationEndpoint
-            ?.watchEndpoint,
-        radioEndpoint = response
-            .header
-            ?.musicImmersiveHeaderRenderer
-            ?.startRadioButton
-            ?.buttonRenderer
-            ?.navigationEndpoint
-            ?.watchEndpoint,
-        songs = songsSection
-            ?.contents
-            ?.mapNotNull(MusicShelfRenderer.Content::musicResponsiveListItemRenderer)
-            ?.mapNotNull(Innertube.SongItem::from),
-        songsEndpoint = songsSection
-            ?.bottomEndpoint
-            ?.browseEndpoint,
-        albums = albumsSection
-            ?.contents
-            ?.mapNotNull(MusicCarouselShelfRenderer.Content::musicTwoRowItemRenderer)
-            ?.mapNotNull(Innertube.AlbumItem::from),
-        albumsEndpoint = albumsSection
-            ?.header
-            ?.musicCarouselShelfBasicHeaderRenderer
-            ?.moreContentButton
-            ?.buttonRenderer
-            ?.navigationEndpoint
-            ?.browseEndpoint,
-        singles = singlesSection
-            ?.contents
-            ?.mapNotNull(MusicCarouselShelfRenderer.Content::musicTwoRowItemRenderer)
-            ?.mapNotNull(Innertube.AlbumItem::from),
-        singlesEndpoint = singlesSection
-            ?.header
-            ?.musicCarouselShelfBasicHeaderRenderer
-            ?.moreContentButton
-            ?.buttonRenderer
-            ?.navigationEndpoint
-            ?.browseEndpoint,
-        subscribersCountText = response
-            .header
-            ?.musicImmersiveHeaderRenderer
-            ?.subscriptionButton
-            ?.subscribeButtonRenderer
-            ?.subscriberCountText
-            ?.text
-    )
 }

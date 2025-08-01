@@ -43,6 +43,12 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import io.ktor.http.Url
+import it.vfsfitvnm.compose.persist.persist
+import it.vfsfitvnm.compose.persist.persistList
+import it.vfsfitvnm.core.ui.LocalAppearance
+import it.vfsfitvnm.providers.innertube.YouTube
+import it.vfsfitvnm.providers.innertube.models.SearchSuggestions
 import it.vfsfitvnm.vimusic.Database
 import it.vfsfitvnm.vimusic.LocalPlayerAwareWindowInsets
 import it.vfsfitvnm.vimusic.R
@@ -57,16 +63,11 @@ import it.vfsfitvnm.vimusic.utils.center
 import it.vfsfitvnm.vimusic.utils.disabled
 import it.vfsfitvnm.vimusic.utils.medium
 import it.vfsfitvnm.vimusic.utils.secondary
-import it.vfsfitvnm.compose.persist.persist
-import it.vfsfitvnm.compose.persist.persistList
-import it.vfsfitvnm.core.ui.LocalAppearance
-import it.vfsfitvnm.providers.innertube.Innertube
-import it.vfsfitvnm.providers.innertube.models.bodies.SearchSuggestionsBody
-import it.vfsfitvnm.providers.innertube.requests.searchSuggestions
-import io.ktor.http.Url
 import kotlinx.collections.immutable.toImmutableList
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.withContext
 
 @Composable
 fun OnlineSearch(
@@ -81,23 +82,28 @@ fun OnlineSearch(
     val (colorPalette, typography) = LocalAppearance.current
 
     var history by persistList<SearchQuery>("search/online/history")
-    var suggestionsResult by persist<Result<List<String>?>?>("search/online/suggestionsResult")
+    var suggestionsResult by persist<Result<SearchSuggestions>?>("search/online/suggestionsResult")
 
     LaunchedEffect(textFieldValue.text) {
         if (DataPreferences.pauseSearchHistory) return@LaunchedEffect
 
-        Database.instance.queries("%${textFieldValue.text}%")
-            .distinctUntilChanged { old, new -> old.size == new.size }
-            .collect { history = it.toImmutableList() }
+        withContext(Dispatchers.IO) {
+            Database.instance.queries("%${textFieldValue.text}%")
+                .distinctUntilChanged { old, new -> old.size == new.size }
+                .collect { history = it.toImmutableList() }
+        }
     }
 
     LaunchedEffect(textFieldValue.text) {
-        if (textFieldValue.text.isEmpty()) return@LaunchedEffect
+        if (textFieldValue.text.isEmpty()) {
+            suggestionsResult = null
+            return@LaunchedEffect
+        }
 
         delay(500)
-        suggestionsResult = Innertube.searchSuggestions(
-            body = SearchSuggestionsBody(input = textFieldValue.text)
-        )
+        withContext(Dispatchers.IO) {
+            suggestionsResult = YouTube.searchSuggestions(textFieldValue.text)
+        }
     }
 
     val playlistId = remember(textFieldValue.text) {
@@ -190,7 +196,6 @@ fun OnlineSearch(
                     .clickable { onSearch(searchQuery.query) }
                     .fillMaxWidth()
                     .padding(all = 16.dp)
-                    .animateItem()
             ) {
                 Spacer(
                     modifier = Modifier
@@ -252,7 +257,7 @@ fun OnlineSearch(
             }
         }
 
-        suggestionsResult?.getOrNull()?.let { suggestions ->
+        suggestionsResult?.getOrNull()?.queries?.let { suggestions ->
             items(items = suggestions) { suggestion ->
                 Row(
                     verticalAlignment = Alignment.CenterVertically,

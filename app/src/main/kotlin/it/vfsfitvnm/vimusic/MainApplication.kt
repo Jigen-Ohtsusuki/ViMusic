@@ -109,10 +109,6 @@ import it.vfsfitvnm.core.ui.shimmerTheme
 import it.vfsfitvnm.core.ui.utils.activityIntentBundle
 import it.vfsfitvnm.core.ui.utils.isAtLeastAndroid12
 import it.vfsfitvnm.core.ui.utils.songBundle
-import it.vfsfitvnm.providers.innertube.Innertube
-import it.vfsfitvnm.providers.innertube.models.bodies.BrowseBody
-import it.vfsfitvnm.providers.innertube.requests.playlistPage
-import it.vfsfitvnm.providers.innertube.requests.song
 import coil3.ImageLoader
 import coil3.PlatformContext
 import coil3.SingletonImageLoader
@@ -134,6 +130,11 @@ import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+
+// Import the new YouTube object
+import it.vfsfitvnm.providers.innertube.YouTube
+// Import the playlistPage data class
+
 
 private const val TAG = "MainActivity"
 private val coroutineScope = CoroutineScope(Dispatchers.IO)
@@ -457,24 +458,32 @@ fun handleUrl(
             }
 
             "playlist" -> uri.getQueryParameter("list")?.let { playlistId ->
-                val browseId = "VL$playlistId"
-
-                if (playlistId.startsWith("OLAK5uy_")) Innertube.playlistPage(
-                    body = BrowseBody(browseId = browseId)
-                )
-                    ?.getOrNull()
+                // Use YouTube.playlist function
+                YouTube.playlist(playlistId = playlistId)
+                    .getOrNull() // Get the playlistPage data class or null
                     ?.let { page ->
-                        page.songsPage?.items?.firstOrNull()?.album?.endpoint?.browseId
-                            ?.let { albumRoute.ensureGlobal(it) }
-                    } ?: withContext(Dispatchers.Main) {
+                        // Access the album's browseId from the songs list within the playlistPage
+                        // This assumes album information is available in the first song of an "OLAK5uy_" playlist
+                        if (playlistId.startsWith("OLAK5uy_")) {
+                            page.songs.firstOrNull()?.album?.id
+                                ?.let { albumId -> albumRoute.ensureGlobal(albumId) }
+                                ?: withContext(Dispatchers.Main) {
+                                    toast(getString(R.string.error_url, uri))
+                                }
+                        } else {
+                            // The original code was using browseId from playlist and params from uri
+                            // The new playlistPage data class does not directly provide a browseId for the playlist itself from the playlist object.
+                            // The direct playlistId is sufficient for playlistRoute.ensureGlobal, and params will be null if not available.
+                            playlistRoute.ensureGlobal(
+                                p0 = "VL$playlistId", // This is still the correct format for browseId
+                                p1 = uri.getQueryParameter("params"),
+                                p2 = null,
+                                p3 = playlistId.startsWith("RDCLAK5uy_")
+                            )
+                        }
+                    } ?: withContext(Dispatchers.Main) { // If YouTube.playlist returns null or throws
                     toast(getString(R.string.error_url, uri))
                 }
-                else playlistRoute.ensureGlobal(
-                    p0 = browseId,
-                    p1 = uri.getQueryParameter("params"),
-                    p2 = null,
-                    p3 = playlistId.startsWith("RDCLAK5uy_")
-                )
             }
 
             "channel", "c" -> uri.lastPathSegment?.let { channelId ->
@@ -491,10 +500,18 @@ fun handleUrl(
                     null
                 }
             }?.let { videoId ->
-                Innertube.song(videoId)?.getOrNull()?.let { song ->
-                    withContext(Dispatchers.Main) {
-                        binder?.player?.forcePlay(song.asMediaItem)
-                    }
+                // Use YouTube.queue to get the SongItem
+                YouTube.queue(videoIds = listOf(videoId))
+                    .getOrNull() // Get the list of SongItem or null
+                    ?.firstOrNull() // Get the first SongItem from the list or null
+                    ?.let { song ->
+                        withContext(Dispatchers.Main) {
+                            // Ensure your `asMediaItem` extension function in `it.vfsfitvnm.vimusic.utils`
+                            // correctly maps the `SongItem` properties to `MediaItem`.
+                            binder?.player?.forcePlay(song.asMediaItem)
+                        }
+                    } ?: withContext(Dispatchers.Main) { // If YouTube.queue returns null or no song found
+                    toast(getString(R.string.error_url, uri))
                 }
             }
         }

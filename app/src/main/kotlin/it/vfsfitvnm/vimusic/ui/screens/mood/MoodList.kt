@@ -22,6 +22,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.valentinilk.shimmer.shimmer
+import it.vfsfitvnm.compose.persist.persist
+import it.vfsfitvnm.core.ui.Dimensions
+import it.vfsfitvnm.core.ui.LocalAppearance
+import it.vfsfitvnm.providers.innertube.YouTube
+import it.vfsfitvnm.providers.innertube.models.AlbumItem as InnertubeAlbumItem
+import it.vfsfitvnm.providers.innertube.models.ArtistItem as InnertubeArtistItem
+import it.vfsfitvnm.providers.innertube.models.PlaylistItem as InnertubePlaylistItem
+import it.vfsfitvnm.providers.innertube.models.SongItem as InnertubeSongItem
+import it.vfsfitvnm.providers.innertube.requests.BrowseResult
 import it.vfsfitvnm.vimusic.LocalPlayerAwareWindowInsets
 import it.vfsfitvnm.vimusic.R
 import it.vfsfitvnm.vimusic.models.Mood
@@ -39,14 +49,8 @@ import it.vfsfitvnm.vimusic.ui.screens.playlistRoute
 import it.vfsfitvnm.vimusic.utils.center
 import it.vfsfitvnm.vimusic.utils.secondary
 import it.vfsfitvnm.vimusic.utils.semiBold
-import it.vfsfitvnm.compose.persist.persist
-import it.vfsfitvnm.core.ui.Dimensions
-import it.vfsfitvnm.core.ui.LocalAppearance
-import it.vfsfitvnm.providers.innertube.Innertube
-import it.vfsfitvnm.providers.innertube.models.bodies.BrowseBody
-import it.vfsfitvnm.providers.innertube.requests.BrowseResult
-import it.vfsfitvnm.providers.innertube.requests.browse
-import com.valentinilk.shimmer.shimmer
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 private const val DEFAULT_BROWSE_ID = "FEmusic_moods_and_genres_category"
 
@@ -59,14 +63,16 @@ fun MoodList(
     val windowInsets = LocalPlayerAwareWindowInsets.current
 
     val browseId = mood.browseId ?: DEFAULT_BROWSE_ID
-    var moodPage by persist<Result<BrowseResult>>(
+    var moodPage by persist<Result<BrowseResult?>?>(
         tag = "playlist/mood/$browseId${mood.params?.let { "/$it" }.orEmpty()}"
     )
 
     LaunchedEffect(Unit) {
         if (moodPage?.isSuccess == true) return@LaunchedEffect
 
-        moodPage = Innertube.browse(BrowseBody(browseId = browseId, params = mood.params))
+        withContext(Dispatchers.IO) {
+            moodPage = YouTube.browse(browseId = browseId, params = mood.params)
+        }
     }
 
     val lazyListState = rememberLazyListState()
@@ -110,53 +116,44 @@ fun MoodList(
                     )
                 }
                 item {
-                    LazyRow {
+                    LazyRow(contentPadding = endPaddingValues) {
                         items(
                             items = item.items,
-                            key = { it.key }
+                            key = { it.id }
                         ) { childItem ->
-                            if (childItem.key == DEFAULT_BROWSE_ID) return@items
-
                             when (childItem) {
-                                is Innertube.AlbumItem -> AlbumItem(
+                                is InnertubeAlbumItem -> AlbumItem(
                                     album = childItem,
                                     thumbnailSize = Dimensions.thumbnails.album,
                                     alternative = true,
                                     modifier = Modifier.clickable {
-                                        childItem.info?.endpoint?.browseId?.let {
-                                            albumRoute.global(it)
-                                        }
+                                        albumRoute.global(childItem.browseId)
                                     }
                                 )
 
-                                is Innertube.ArtistItem -> ArtistItem(
+                                is InnertubeArtistItem -> ArtistItem(
                                     artist = childItem,
                                     thumbnailSize = Dimensions.thumbnails.album,
                                     alternative = true,
                                     modifier = Modifier.clickable {
-                                        childItem.info?.endpoint?.browseId?.let {
-                                            artistRoute.global(it)
-                                        }
+                                        artistRoute.global(childItem.id)
                                     }
                                 )
 
-                                is Innertube.PlaylistItem -> PlaylistItem(
+                                is InnertubePlaylistItem -> PlaylistItem(
                                     playlist = childItem,
                                     thumbnailSize = Dimensions.thumbnails.album,
                                     alternative = true,
                                     modifier = Modifier.clickable {
-                                        childItem.info?.endpoint?.let { endpoint ->
-                                            playlistRoute.global(
-                                                p0 = endpoint.browseId ?: return@clickable,
-                                                p1 = endpoint.params,
-                                                p2 = childItem.songCount?.let { it / 100 },
-                                                p3 = true
-                                            )
-                                        }
+                                        playlistRoute.global(
+                                            childItem.id,
+                                            null,
+                                            null,
+                                            childItem.author?.name == "YouTube Music"
+                                        )
                                     }
                                 )
-
-                                else -> {}
+                                is InnertubeSongItem -> {}
                             }
                         }
                     }

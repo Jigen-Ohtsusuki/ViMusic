@@ -1,407 +1,474 @@
 package it.vfsfitvnm.providers.innertube
 
 import it.vfsfitvnm.providers.innertube.models.Context
-import it.vfsfitvnm.providers.innertube.models.MusicNavigationButtonRenderer
-import it.vfsfitvnm.providers.innertube.models.NavigationEndpoint
-import it.vfsfitvnm.providers.innertube.models.Runs
-import it.vfsfitvnm.providers.innertube.models.Thumbnail
-import it.vfsfitvnm.providers.utils.runCatchingCancellable
-import io.ktor.client.HttpClient
-import io.ktor.client.engine.okhttp.OkHttp
-import io.ktor.client.plugins.HttpResponseValidator
-import io.ktor.client.plugins.ResponseException
-import io.ktor.client.plugins.api.createClientPlugin
-import io.ktor.client.plugins.compression.ContentEncoding
-import io.ktor.client.plugins.compression.brotli
-import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
-import io.ktor.client.plugins.defaultRequest
-import io.ktor.client.plugins.logging.LogLevel
-import io.ktor.client.plugins.logging.Logging
-import io.ktor.client.request.HttpRequestBuilder
-import io.ktor.client.request.HttpSendPipeline
-import io.ktor.client.request.get
-import io.ktor.client.request.header
-import io.ktor.client.request.headers
-import io.ktor.client.request.host
-import io.ktor.client.statement.bodyAsText
-import io.ktor.http.ContentType
-import io.ktor.http.contentType
-import io.ktor.http.parameters
-import io.ktor.serialization.kotlinx.json.json
-import kotlinx.serialization.Serializable
+import it.vfsfitvnm.providers.innertube.models.YouTubeClient
+import it.vfsfitvnm.providers.innertube.models.YouTubeLocale
+import it.vfsfitvnm.providers.innertube.models.bodies.*
+import it.vfsfitvnm.providers.innertube.utils.parseCookieString
+import it.vfsfitvnm.providers.innertube.utils.sha1
+import io.ktor.client.*
+import io.ktor.client.engine.okhttp.*
+import io.ktor.client.plugins.*
+import io.ktor.client.plugins.compression.*
+import io.ktor.client.plugins.contentnegotiation.*
+import io.ktor.client.request.*
+import io.ktor.http.*
+import io.ktor.serialization.kotlinx.json.*
+import io.ktor.util.encodeBase64
+import it.vfsfitvnm.providers.innertube.models.bodies.AccountMenuBody
+import it.vfsfitvnm.providers.innertube.models.bodies.BrowseBody
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.json.Json
-import org.slf4j.Logger
-import org.slf4j.LoggerFactory
+import java.net.Proxy
+import java.util.*
 
-internal val json = Json {
-    ignoreUnknownKeys = true
-    explicitNulls = false
-    encodeDefaults = true
-}
+class Innertube {
+    private var httpClient = createClient()
 
-object Innertube {
-    private var javascriptChallenge: JavaScriptChallenge? = null
-    private var lastChallengeUpdate = 0L
-    private const val CHALLENGE_CACHE_DURATION = 30 * 60 * 1000L // 30 minutes
-    private const val API_KEY = "AIzaSyC9XL3ZjWddXya6X74dJoCTL-WEYFDNX30"
-    private val OriginInterceptor = createClientPlugin("OriginInterceptor") {
-        client.sendPipeline.intercept(HttpSendPipeline.State) {
-            context.headers {
-                val host = when (context.host) {
-                    "youtubei.googleapis.com" -> "www.youtube.com"
-                    "music.youtube.com" -> "music.youtube.com"
-                    else -> context.host
-                }
-                val origin = "${context.url.protocol.name}://$host"
-                set("origin", origin)
-                set("referer", "$origin/")
-
-            }
+    var locale = YouTubeLocale(
+        gl = Locale.getDefault().country,
+        hl = Locale.getDefault().toLanguageTag()
+    )
+    var visitorData: String? = null
+    var dataSyncId: String? = null
+    var cookie: String? = null
+        set(value) {
+            field = value
+            cookieMap = if (value == null) emptyMap() else parseCookieString(value)
         }
-    }
+    private var cookieMap = emptyMap<String, String>()
 
-    val logger: Logger = LoggerFactory.getLogger(Innertube::class.java)
-    val baseClient = HttpClient(OkHttp) {
+    var proxy: Proxy? = null
+        set(value) {
+            field = value
+            httpClient.close()
+            httpClient = createClient()
+        }
+
+    var useLoginForBrowse: Boolean = false
+
+    @OptIn(ExperimentalSerializationApi::class)
+    private fun createClient() = HttpClient(OkHttp) {
         expectSuccess = true
 
-        HttpResponseValidator {
-            handleResponseExceptionWithRequest { cause, _ ->
-                val ex = cause as? ResponseException ?: return@handleResponseExceptionWithRequest
-                val code = ex.response.status.value
-
-                // Log rate limiting and auth errors
-                when (code) {
-                    403 -> logger.warn("Access forbidden (403) - possible rate limiting or auth issue")
-                    429 -> logger.warn("Too many requests (429) - rate limited")
-                    else -> if (code !in (100..<600)) throw InvalidHttpCodeException(code)
-                }
-            }
-        }
-
         install(ContentNegotiation) {
-            json(json)
+            json(Json {
+                ignoreUnknownKeys = true
+                explicitNulls = false
+                encodeDefaults = true
+            })
         }
 
         install(ContentEncoding) {
-            brotli(1.0f)
-            gzip(0.9f)
-            deflate(0.8f)
+            gzip(0.9F)
+            deflate(0.8F)
         }
 
-        install(Logging) {
-            level = LogLevel.INFO
-        }
-
-        install(OriginInterceptor)
-
-        engine {
-            config {
-                connectTimeout(20, java.util.concurrent.TimeUnit.SECONDS)
-                readTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
-                writeTimeout(20, java.util.concurrent.TimeUnit.SECONDS)
+        if (proxy != null) {
+            engine {
+                proxy = this@Innertube.proxy
             }
         }
-    }
 
-    val client = baseClient.config {
         defaultRequest {
-            url(scheme = "https", host = "music.youtube.com") {
-                contentType(ContentType.Application.Json)
-                headers {
-                    // Use consistent working API key
-                    set("X-Goog-Api-Key", API_KEY)
-                    set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-                    set("Accept", "application/json")
-                    set("Accept-Language", "en-US,en;q=0.9")
-                    set("Accept-Encoding", "gzip, deflate, br")
-                }
-                parameters {
-                    set("prettyPrint", "false")
-                    set("key", API_KEY)
+            url(YouTubeClient.API_URL_YOUTUBE_MUSIC)
+        }
+    }
+
+    private fun HttpRequestBuilder.ytClient(client: YouTubeClient, setLogin: Boolean = false) {
+        contentType(ContentType.Application.Json)
+        headers {
+            append("X-Goog-Api-Format-Version", "1")
+            append("X-YouTube-Client-Name", client.clientId /* Not a typo. The Client-Name header does contain the client id. */)
+            append("X-YouTube-Client-Version", client.clientVersion)
+            append("X-Origin", YouTubeClient.ORIGIN_YOUTUBE_MUSIC)
+            append("Referer", YouTubeClient.REFERER_YOUTUBE_MUSIC)
+            if (setLogin && client.loginSupported) {
+                cookie?.let { cookie ->
+                    append("cookie", cookie)
+                    if ("SAPISID" !in cookieMap) return@let
+                    val currentTime = System.currentTimeMillis() / 1000
+                    val sapisidHash = sha1("$currentTime ${cookieMap["SAPISID"]} ${YouTubeClient.ORIGIN_YOUTUBE_MUSIC}")
+                    append("Authorization", "SAPISIDHASH ${currentTime}_${sapisidHash}")
                 }
             }
         }
+        userAgent(client.userAgent)
+        parameter("prettyPrint", false)
     }
 
-    @Suppress("all")
-    private val regexes = listOf(
-        // New, more reliable patterns translated from yt-dlp
-        """\b[cs]\s*&&\s*[adf]\.set\([^,]+\s*,\s*encodeURIComponent\s*\(\s*([a-zA-Z0-9$]+)\(""".toRegex(),
-        """(?:\b|[^a-zA-Z0-9$])([a-zA-Z0-9$]{2,})\s*=\s*function\(\s*a\s*\)\s*\{\s*a\s*=\s*a\.split\(\s*""\s*\)""".toRegex(),
-        """([a-zA-Z0-9$]+)\s*=\s*function\(\s*a\s*\)\s*\{\s*a\s*=\s*a\.split\(\s*""\);""".toRegex(),
-        // Original patterns (kept as fallbacks)
-        """\bm=([a-zA-Z0-9$]{2,})\(decodeURIComponent\(h\.s\)\)""".toRegex(),
-        """\bc&&\(c=([a-zA-Z0-9$]{2,})\(decodeURIComponent\(c\)\)""".toRegex()
-    )
-
-    private suspend fun getJavaScriptChallenge(context: Context): JavaScriptChallenge? {
-        val currentTime = System.currentTimeMillis()
-
-        // Check if we need to refresh the challenge
-        if (javascriptChallenge != null &&
-            (currentTime - lastChallengeUpdate) < CHALLENGE_CACHE_DURATION) {
-            return javascriptChallenge
-        }
-
-        return try {
-            context.client.getConfiguration()
-            val jsUrl = context.client.jsUrl ?: return null
-
-            // Remove artificial delay - it's suspicious
-            // delay(Random.nextLong(100, 500)) // REMOVED
-
-            val sourceFile = baseClient
-                .get("${context.client.root}$jsUrl") {
-                    context.apply()
-                    // Simplified headers - less suspicious
-                    header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-                    header("Referer", "${context.client.root}/")
-                    // Remove Accept header manipulation
-                }
-                .bodyAsText()
-
-            val timestamp = "(?:signatureTimestamp|sts):(\\d{5})".toRegex()
-                .find(sourceFile)
-                ?.groups
-                ?.get(1)
-                ?.value
-                ?.trim()
-                ?.takeIf { it.isNotBlank() } ?: return null
-
-            val functionName = regexes.firstNotNullOfOrNull { regex ->
-                regex
-                    .find(sourceFile)
-                    ?.groups
-                    ?.get(1)
-                    ?.value
-                    ?.trim()
-                    ?.takeIf { it.isNotBlank() }
-            } ?: return null
-
-            JavaScriptChallenge(
-                source = sourceFile
-                    .replace("document.location.hostname", "\"youtube.com\"")
-                    .replace("window.location.hostname", "\"youtube.com\"")
-                    .replace("XMLHttpRequest.prototype.fetch", "\"aaa\""),
-                timestamp = timestamp,
-                functionName = functionName
-            ).also {
-                javascriptChallenge = it
-                lastChallengeUpdate = currentTime
-                logger.info("JavaScript challenge updated successfully")
-            }
-        } catch (e: Exception) {
-            logger.error("Failed to get JavaScript challenge", e)
-            null
-        }
+    suspend fun search(
+        client: YouTubeClient,
+        query: String? = null,
+        params: String? = null,
+        continuation: String? = null,
+    ) = httpClient.post("search") {
+        ytClient(client, setLogin = useLoginForBrowse)
+        setBody(
+            SearchBody(
+                context = client.toContext(
+                    locale,
+                    visitorData,
+                    if (useLoginForBrowse) dataSyncId else null
+                ),
+                query = query,
+                params = params
+            )
+        )
+        parameter("continuation", continuation)
+        parameter("ctoken", continuation)
     }
 
-    suspend fun getSignatureTimestamp(context: Context): String? = runCatchingCancellable {
-        getJavaScriptChallenge(context)?.timestamp
-    }?.onFailure {
-        logger.error("Failed to get signature timestamp", it)
-        it.printStackTrace()
-    }?.getOrNull()
-
-    private const val BASE = "/youtubei/v1"
-    internal const val BROWSE = "$BASE/browse"
-    internal const val NEXT = "$BASE/next"
-    internal const val PLAYER = "https://youtubei.googleapis.com/youtubei/v1/player"
-    internal const val PLAYER_MUSIC = "$BASE/player"
-    internal const val QUEUE = "$BASE/music/get_queue"
-    internal const val SEARCH = "$BASE/search"
-    internal const val SEARCH_SUGGESTIONS = "$BASE/music/get_search_suggestions"
-    internal const val MUSIC_RESPONSIVE_LIST_ITEM_RENDERER_MASK =
-        "musicResponsiveListItemRenderer(flexColumns,fixedColumns,thumbnail,navigationEndpoint,badges)"
-    internal const val MUSIC_TWO_ROW_ITEM_RENDERER_MASK =
-        "musicTwoRowItemRenderer(thumbnailRenderer,title,subtitle,navigationEndpoint)"
-
-    @Suppress("MaximumLineLength")
-    internal const val PLAYLIST_PANEL_VIDEO_RENDERER_MASK =
-        "playlistPanelVideoRenderer(title,navigationEndpoint,longBylineText,shortBylineText,thumbnail,lengthText,badges)"
-
-    internal fun HttpRequestBuilder.mask(value: String = "*") =
-        header("X-Goog-FieldMask", value)
-
-    @Serializable
-    data class Info<T : NavigationEndpoint.Endpoint>(
-        val name: String?,
-        val endpoint: T?
-    ) {
-        @Suppress("UNCHECKED_CAST")
-        constructor(run: Runs.Run) : this(
-            name = run.text,
-            endpoint = run.navigationEndpoint?.endpoint as T?
+    suspend fun player(
+        client: YouTubeClient,
+        videoId: String,
+        playlistId: String?,
+        signatureTimestamp: Int?,
+    ) = httpClient.post("player") {
+        ytClient(client, setLogin = true)
+        setBody(
+            PlayerBody(
+                context = client.toContext(locale, visitorData, dataSyncId).let {
+                    if (client.isEmbedded) {
+                        it.copy(
+                            thirdParty = Context.ThirdParty(
+                                embedUrl = "https://www.youtube.com/watch?v=${videoId}"
+                            )
+                        )
+                    } else it
+                },
+                videoId = videoId,
+                playlistId = playlistId,
+                playbackContext = if (client.useSignatureTimestamp && signatureTimestamp != null) {
+                    PlayerBody.PlaybackContext(
+                        PlayerBody.PlaybackContext.ContentPlaybackContext(
+                            signatureTimestamp
+                        )
+                    )
+                } else null,
+            )
         )
     }
 
-    @JvmInline
-    value class SearchFilter(val value: String) {
-        companion object {
-            val Song = SearchFilter("EgWKAQIIAWoOEAMQBBAJEAoQBRAQEBU%3D")
-            val Video = SearchFilter("EgWKAQIQAWoOEAMQBBAJEAoQBRAQEBU%3D")
-            val Album = SearchFilter("EgWKAQIYAWoOEAMQBBAJEAoQBRAQEBU%3D")
-            val Artist = SearchFilter("EgWKAQIgAWoOEAMQBBAJEAoQBRAQEBU%3D")
-            val CommunityPlaylist = SearchFilter("EgeKAQQoAEABag4QAxAEEAkQChAFEBAQFQ%3D%3D")
+    suspend fun registerPlayback(
+        url: String,
+        cpn: String,
+        playlistId: String?,
+        client: YouTubeClient = YouTubeClient.WEB_REMIX,
+    ) = httpClient.get(url) {
+        ytClient(client, true)
+        parameter("ver", "2")
+        parameter("c", client.clientName)
+        parameter("cpn", cpn)
+
+        if (playlistId != null) {
+            parameter("list", playlistId)
+            parameter("referrer", "https://music.youtube.com/playlist?list=$playlistId")
         }
     }
 
-    sealed class Item {
-        abstract val thumbnail: Thumbnail?
-        abstract val key: String
-    }
-
-    @Serializable
-    data class SongItem(
-        val info: Info<NavigationEndpoint.Endpoint.Watch>?,
-        val authors: List<Info<NavigationEndpoint.Endpoint.Browse>>?,
-        val album: Info<NavigationEndpoint.Endpoint.Browse>?,
-        val durationText: String?,
-        val explicit: Boolean,
-        override val thumbnail: Thumbnail?
-    ) : Item() {
-        override val key get() = info!!.endpoint!!.videoId!!
-
-        companion object
-    }
-
-    data class VideoItem(
-        val info: Info<NavigationEndpoint.Endpoint.Watch>?,
-        val authors: List<Info<NavigationEndpoint.Endpoint.Browse>>?,
-        val viewsText: String?,
-        val durationText: String?,
-        override val thumbnail: Thumbnail?
-    ) : Item() {
-        override val key get() = info!!.endpoint!!.videoId!!
-
-        val isOfficialMusicVideo: Boolean
-            get() = info
-                ?.endpoint
-                ?.watchEndpointMusicSupportedConfigs
-                ?.watchEndpointMusicConfig
-                ?.musicVideoType == "MUSIC_VIDEO_TYPE_OMV"
-
-        companion object
-    }
-
-    @Serializable
-    data class AlbumItem(
-        val info: Info<NavigationEndpoint.Endpoint.Browse>?,
-        val authors: List<Info<NavigationEndpoint.Endpoint.Browse>>?,
-        val year: String?,
-        override val thumbnail: Thumbnail?
-    ) : Item() {
-        override val key get() = info!!.endpoint!!.browseId!!
-
-        companion object
-    }
-
-    @Serializable
-    data class ArtistItem(
-        val info: Info<NavigationEndpoint.Endpoint.Browse>?,
-        val subscribersCountText: String?,
-        override val thumbnail: Thumbnail?
-    ) : Item() {
-        override val key get() = info!!.endpoint!!.browseId!!
-
-        companion object
-    }
-
-    @Serializable
-    data class PlaylistItem(
-        val info: Info<NavigationEndpoint.Endpoint.Browse>?,
-        val channel: Info<NavigationEndpoint.Endpoint.Browse>?,
-        val songCount: Int?,
-        override val thumbnail: Thumbnail?
-    ) : Item() {
-        override val key get() = info!!.endpoint!!.browseId!!
-
-        companion object
-    }
-
-    data class ArtistPage(
-        val name: String?,
-        val description: String?,
-        val thumbnail: Thumbnail?,
-        val shuffleEndpoint: NavigationEndpoint.Endpoint.Watch?,
-        val radioEndpoint: NavigationEndpoint.Endpoint.Watch?,
-        val songs: List<SongItem>?,
-        val songsEndpoint: NavigationEndpoint.Endpoint.Browse?,
-        val albums: List<AlbumItem>?,
-        val albumsEndpoint: NavigationEndpoint.Endpoint.Browse?,
-        val singles: List<AlbumItem>?,
-        val singlesEndpoint: NavigationEndpoint.Endpoint.Browse?,
-        val subscribersCountText: String?
-    )
-
-    data class PlaylistOrAlbumPage(
-        val title: String?,
-        val description: String?,
-        val authors: List<Info<NavigationEndpoint.Endpoint.Browse>>?,
-        val year: String?,
-        val thumbnail: Thumbnail?,
-        val url: String?,
-        val songsPage: ItemsPage<SongItem>?,
-        val otherVersions: List<AlbumItem>?,
-        val otherInfo: String?
-    )
-
-    data class NextPage(
-        val itemsPage: ItemsPage<SongItem>?,
-        val playlistId: String?,
-        val params: String? = null,
-        val playlistSetVideoId: String? = null
-    )
-
-    @Serializable
-    data class RelatedPage(
-        val songs: List<SongItem>? = null,
-        val playlists: List<PlaylistItem>? = null,
-        val albums: List<AlbumItem>? = null,
-        val artists: List<ArtistItem>? = null
-    )
-
-    data class DiscoverPage(
-        val newReleaseAlbums: List<AlbumItem>,
-        val moods: List<Mood.Item>,
-        val trending: Trending
-    ) {
-        data class Trending(
-            val songs: List<SongItem>,
-            val endpoint: NavigationEndpoint.Endpoint.Browse?
+    suspend fun browse(
+        client: YouTubeClient,
+        browseId: String? = null,
+        params: String? = null,
+        continuation: String? = null,
+        setLogin: Boolean = false,
+    ) = httpClient.post("browse") {
+        ytClient(client, setLogin = setLogin || useLoginForBrowse)
+        setBody(
+            BrowseBody(
+                context = client.toContext(
+                    locale,
+                    visitorData,
+                    if (setLogin || useLoginForBrowse) dataSyncId else null
+                ),
+                browseId = browseId,
+                params = params,
+                continuation = continuation
+            )
         )
     }
 
-    data class Mood(
-        val title: String,
-        val items: List<Item>
-    ) {
-        data class Item(
-            val title: String,
-            val stripeColor: Long,
-            val endpoint: NavigationEndpoint.Endpoint.Browse
-        ) : Innertube.Item() {
-            override val thumbnail get() = null
-            override val key
-                get() = "${endpoint.browseId.orEmpty()}${endpoint.params?.let { "/$it" }.orEmpty()}"
+    suspend fun next(
+        client: YouTubeClient,
+        videoId: String?,
+        playlistId: String?,
+        playlistSetVideoId: String?,
+        index: Int?,
+        params: String?,
+        continuation: String? = null,
+    ) = httpClient.post("next") {
+        ytClient(client, setLogin = true)
+        setBody(
+            NextBody(
+                context = client.toContext(locale, visitorData, dataSyncId),
+                videoId = videoId,
+                playlistId = playlistId,
+                playlistSetVideoId = playlistSetVideoId,
+                index = index,
+                params = params,
+                continuation = continuation
+            )
+        )
+    }
 
-            companion object
+    suspend fun getSearchSuggestions(
+        client: YouTubeClient,
+        input: String,
+    ) = httpClient.post("music/get_search_suggestions") {
+        ytClient(client)
+        setBody(
+            GetSearchSuggestionsBody(
+                context = client.toContext(locale, visitorData, null),
+                input = input
+            )
+        )
+    }
+
+    suspend fun getQueue(
+        client: YouTubeClient,
+        videoIds: List<String>?,
+        playlistId: String?,
+    ) = httpClient.post("music/get_queue") {
+        ytClient(client)
+        setBody(
+            GetQueueBody(
+                context = client.toContext(locale, visitorData, null),
+                videoIds = videoIds,
+                playlistId = playlistId
+            )
+        )
+    }
+
+    suspend fun getTranscript(
+        client: YouTubeClient,
+        videoId: String,
+    ) = httpClient.post("https://music.youtube.com/youtubei/v1/get_transcript") {
+        parameter("key", "AIzaSyC9XL3ZjWddXya6X74dJoCTL-WEYFDNX30")
+        headers {
+            append("Content-Type", "application/json")
         }
-    }
-
-    fun MusicNavigationButtonRenderer.toMood(): Mood.Item? {
-        return Mood.Item(
-            title = buttonText.runs.firstOrNull()?.text ?: return null,
-            stripeColor = solid?.leftStripeColor ?: return null,
-            endpoint = clickCommand.browseEndpoint ?: return null
+        setBody(
+            GetTranscriptBody(
+                context = client.toContext(locale, null, null),
+                params = "\n${11.toChar()}$videoId".encodeBase64()
+            )
         )
     }
 
-    data class ItemsPage<T : Item>(
-        val items: List<T>?,
-        val continuation: String?
-    )
+    suspend fun getSwJsData() = httpClient.get("https://music.youtube.com/sw.js_data")
+
+    suspend fun accountMenu(client: YouTubeClient) = httpClient.post("account/account_menu") {
+        ytClient(client, setLogin = true)
+        setBody(AccountMenuBody(client.toContext(locale, visitorData, dataSyncId)))
+    }
+
+    suspend fun likeVideo(
+        client: YouTubeClient,
+        videoId: String,
+    ) = httpClient.post("like/like") {
+        ytClient(client, setLogin = true)
+        setBody(
+            LikeBody(
+                context = client.toContext(locale, visitorData, dataSyncId),
+                target = LikeBody.Target.VideoTarget(videoId)
+            )
+        )
+    }
+
+    suspend fun unlikeVideo(
+        client: YouTubeClient,
+        videoId: String,
+    ) = httpClient.post("like/removelike") {
+        ytClient(client, setLogin = true)
+        setBody(
+            LikeBody(
+                context = client.toContext(locale, visitorData, dataSyncId),
+                target = LikeBody.Target.VideoTarget(videoId)
+            )
+        )
+    }
+
+    suspend fun subscribeChannel(
+        client: YouTubeClient,
+        channelId: String,
+    ) = httpClient.post("subscription/subscribe") {
+        ytClient(client, setLogin = true)
+        setBody(
+            SubscribeBody(
+                context = client.toContext(locale, visitorData, dataSyncId),
+                channelIds = listOf(channelId)
+            )
+        )
+    }
+
+    suspend fun unsubscribeChannel(
+        client: YouTubeClient,
+        channelId: String,
+    ) = httpClient.post("subscription/unsubscribe") {
+        ytClient(client, setLogin = true)
+        setBody(
+            SubscribeBody(
+                context = client.toContext(locale, visitorData, dataSyncId),
+                channelIds = listOf(channelId)
+            )
+        )
+    }
+
+    suspend fun likePlaylist(
+        client: YouTubeClient,
+        playlistId: String,
+    ) = httpClient.post("like/like") {
+        ytClient(client, setLogin = true)
+        setBody(
+            LikeBody(
+                context = client.toContext(locale, visitorData, dataSyncId),
+                target = LikeBody.Target.PlaylistTarget(playlistId)
+            )
+        )
+    }
+
+    suspend fun unlikePlaylist(
+        client: YouTubeClient,
+        playlistId: String,
+    ) = httpClient.post("like/removelike") {
+        ytClient(client, setLogin = true)
+        setBody(
+            LikeBody(
+                context = client.toContext(locale, visitorData, dataSyncId),
+                target = LikeBody.Target.PlaylistTarget(playlistId)
+            )
+        )
+    }
+
+    suspend fun addToPlaylist(
+        client: YouTubeClient,
+        playlistId: String,
+        videoId: String,
+    ) = httpClient.post("browse/edit_playlist") {
+        ytClient(client, setLogin = true)
+        setBody(
+            EditPlaylistBody(
+                context = client.toContext(locale, visitorData, dataSyncId),
+                playlistId = playlistId.removePrefix("VL"),
+                actions = listOf(
+                    Action.AddVideoAction(addedVideoId = videoId)
+                )
+            )
+        )
+    }
+
+    suspend fun addPlaylistToPlaylist(
+        client: YouTubeClient,
+        playlistId: String,
+        addPlaylistId: String,
+    ) = httpClient.post("browse/edit_playlist") {
+        ytClient(client, setLogin = true)
+        setBody(
+            EditPlaylistBody(
+                context = client.toContext(locale, visitorData, dataSyncId),
+                playlistId = playlistId.removePrefix("VL"),
+                actions = listOf(
+                    Action.AddPlaylistAction(addedFullListId = addPlaylistId)
+                )
+            )
+        )
+    }
+
+    suspend fun removeFromPlaylist(
+        client: YouTubeClient,
+        playlistId: String,
+        videoId: String,
+        setVideoId: String,
+    ) = httpClient.post("browse/edit_playlist") {
+        ytClient(client, setLogin = true)
+        setBody(
+            EditPlaylistBody(
+                context = client.toContext(locale, visitorData, dataSyncId),
+                playlistId = playlistId.removePrefix("VL"),
+                actions = listOf(
+                    Action.RemoveVideoAction(
+                        removedVideoId = videoId,
+                        setVideoId = setVideoId,
+                    )
+                )
+            )
+        )
+    }
+
+    suspend fun moveSongPlaylist(
+        client: YouTubeClient,
+        playlistId: String,
+        setVideoId: String,
+        successorSetVideoId: String,
+    ) = httpClient.post("browse/edit_playlist") {
+        ytClient(client, setLogin = true)
+        setBody(
+            EditPlaylistBody(
+                context = client.toContext(locale, visitorData, dataSyncId),
+                playlistId = playlistId,
+                actions = listOf(
+                    Action.MoveVideoAction(
+                        movedSetVideoIdSuccessor = successorSetVideoId,
+                        setVideoId = setVideoId,
+                    )
+                )
+
+            )
+        )
+    }
+
+    suspend fun createPlaylist(
+        client: YouTubeClient,
+        title: String,
+    ) = httpClient.post("playlist/create") {
+        ytClient(client, true)
+        setBody(
+            CreatePlaylistBody(
+                context = client.toContext(locale, visitorData, dataSyncId),
+                title = title
+            )
+        )
+    }
+
+    suspend fun renamePlaylist(
+        client: YouTubeClient,
+        playlistId: String,
+        name: String,
+    ) = httpClient.post("browse/edit_playlist") {
+        ytClient(client, setLogin = true)
+        setBody(
+            EditPlaylistBody(
+                context = client.toContext(locale, visitorData, dataSyncId),
+                playlistId = playlistId,
+                actions = listOf(
+                    Action.RenamePlaylistAction(
+                        playlistName = name
+                    )
+                )
+            )
+        )
+    }
+
+    suspend fun deletePlaylist(
+        client: YouTubeClient,
+        playlistId: String,
+    ) = httpClient.post("playlist/delete") {
+        println("deleting $playlistId")
+        ytClient(client, setLogin = true)
+        setBody(
+            PlaylistDeleteBody(
+                context = client.toContext(locale, visitorData, dataSyncId),
+                playlistId = playlistId
+            )
+        )
+    }
+
+    private suspend fun returnYouTubeDislike(videoId: String) =
+        httpClient.get("https://returnyoutubedislikeapi.com/Votes?videoId=$videoId") {
+            contentType(ContentType.Application.Json)
+        }
+
+
+
 }
-
-data class InvalidHttpCodeException(val code: Int) :
-    IllegalStateException("Invalid http code received: $code")

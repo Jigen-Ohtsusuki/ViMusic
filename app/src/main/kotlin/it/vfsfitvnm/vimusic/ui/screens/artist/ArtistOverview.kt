@@ -4,16 +4,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.WindowInsetsSides
-import androidx.compose.foundation.layout.asPaddingValues
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.only
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -24,32 +15,24 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import it.vfsfitvnm.core.ui.Dimensions
+import it.vfsfitvnm.core.ui.LocalAppearance
+import it.vfsfitvnm.core.ui.utils.isLandscape
+import it.vfsfitvnm.providers.innertube.models.AlbumItem as InnertubeAlbumItem
+import it.vfsfitvnm.providers.innertube.models.SongItem
+import it.vfsfitvnm.providers.innertube.models.WatchEndpoint
+import it.vfsfitvnm.providers.innertube.requests.ArtistPage
 import it.vfsfitvnm.vimusic.LocalPlayerAwareWindowInsets
 import it.vfsfitvnm.vimusic.LocalPlayerServiceBinder
 import it.vfsfitvnm.vimusic.R
 import it.vfsfitvnm.vimusic.ui.components.LocalMenuState
 import it.vfsfitvnm.vimusic.ui.components.ShimmerHost
-import it.vfsfitvnm.vimusic.ui.components.themed.Attribution
-import it.vfsfitvnm.vimusic.ui.components.themed.FloatingActionsContainerWithScrollToTop
-import it.vfsfitvnm.vimusic.ui.components.themed.LayoutWithAdaptiveThumbnail
-import it.vfsfitvnm.vimusic.ui.components.themed.NonQueuedMediaItemMenu
-import it.vfsfitvnm.vimusic.ui.components.themed.SecondaryTextButton
-import it.vfsfitvnm.vimusic.ui.components.themed.TextPlaceholder
+import it.vfsfitvnm.vimusic.ui.components.themed.*
 import it.vfsfitvnm.vimusic.ui.items.AlbumItem
 import it.vfsfitvnm.vimusic.ui.items.AlbumItemPlaceholder
 import it.vfsfitvnm.vimusic.ui.items.SongItem
 import it.vfsfitvnm.vimusic.ui.items.SongItemPlaceholder
-import it.vfsfitvnm.vimusic.utils.asMediaItem
-import it.vfsfitvnm.vimusic.utils.forcePlay
-import it.vfsfitvnm.vimusic.utils.medium
-import it.vfsfitvnm.vimusic.utils.playingSong
-import it.vfsfitvnm.vimusic.utils.secondary
-import it.vfsfitvnm.vimusic.utils.semiBold
-import it.vfsfitvnm.core.ui.Dimensions
-import it.vfsfitvnm.core.ui.LocalAppearance
-import it.vfsfitvnm.core.ui.utils.isLandscape
-import it.vfsfitvnm.providers.innertube.Innertube
-import it.vfsfitvnm.providers.innertube.models.NavigationEndpoint
+import it.vfsfitvnm.vimusic.utils.*
 
 private val sectionTextModifier = Modifier
     .padding(horizontal = 16.dp)
@@ -58,7 +41,7 @@ private val sectionTextModifier = Modifier
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ArtistOverview(
-    youtubeArtistPage: Innertube.ArtistPage?,
+    youtubeArtistPage: ArtistPage?,
     onViewAllSongsClick: () -> Unit,
     onViewAllAlbumsClick: () -> Unit,
     onViewAllSinglesClick: () -> Unit,
@@ -94,7 +77,8 @@ fun ArtistOverview(
         ) {
             Box(modifier = Modifier.padding(endPaddingValues)) {
                 headerContent {
-                    youtubeArtistPage?.shuffleEndpoint?.let { endpoint ->
+                    // Access shuffleEndpoint via the new 'artist' object
+                    youtubeArtistPage?.artist?.shuffleEndpoint?.let { endpoint ->
                         SecondaryTextButton(
                             text = stringResource(R.string.shuffle),
                             onClick = {
@@ -103,19 +87,19 @@ fun ArtistOverview(
                             }
                         )
                     }
-                    youtubeArtistPage?.subscribersCountText?.let { subscribers ->
-                        BasicText(
-                            text = stringResource(R.string.format_subscribers, subscribers),
-                            style = typography.xxs.medium
-                        )
-                    }
+                    // Note: subscribersCountText is not available in the new ArtistPage model.
                 }
             }
 
             if (!isLandscape) thumbnailContent()
 
-            youtubeArtistPage?.let { artist ->
-                artist.songs?.let { songs ->
+            if (youtubeArtistPage != null) {
+                // Sections are now a list, so we must find the ones we need by title.
+                val songsSection = youtubeArtistPage.sections.find { it.title == "Songs" }
+                val albumsSection = youtubeArtistPage.sections.find { it.title == "Albums" }
+                val singlesSection = youtubeArtistPage.sections.find { it.title == "Singles" }
+
+                songsSection?.let { section ->
                     Row(
                         verticalAlignment = Alignment.Bottom,
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -129,7 +113,7 @@ fun ArtistOverview(
                             modifier = sectionTextModifier
                         )
 
-                        artist.songsEndpoint?.let {
+                        section.moreEndpoint?.let {
                             BasicText(
                                 text = stringResource(R.string.view_all),
                                 style = typography.xs.secondary,
@@ -140,36 +124,40 @@ fun ArtistOverview(
 
                     val (currentMediaId, playing) = playingSong(binder)
 
-                    songs.forEach { song ->
-                        SongItem(
-                            song = song,
-                            thumbnailSize = Dimensions.thumbnails.song,
-                            modifier = Modifier
-                                .combinedClickable(
-                                    onLongClick = {
-                                        menuState.display {
-                                            NonQueuedMediaItemMenu(
-                                                onDismiss = menuState::hide,
-                                                mediaItem = song.asMediaItem
+                    section.items.forEach { item ->
+                        (item as? SongItem)?.let { song ->
+                            SongItem(
+                                song = song,
+                                thumbnailSize = Dimensions.thumbnails.song,
+                                modifier = Modifier
+                                    .combinedClickable(
+                                        onLongClick = {
+                                            menuState.display {
+                                                NonQueuedMediaItemMenu(
+                                                    onDismiss = menuState::hide,
+                                                    mediaItem = song.asMediaItem
+                                                )
+                                            }
+                                        },
+                                        onClick = {
+                                            val mediaItem = song.asMediaItem
+                                            binder?.stopRadio()
+                                            binder?.player?.forcePlay(mediaItem)
+                                            // Replaced outdated NavigationEndpoint.Endpoint.Watch
+                                            binder?.setupRadio(
+                                                WatchEndpoint(videoId = mediaItem.mediaId)
                                             )
                                         }
-                                    },
-                                    onClick = {
-                                        val mediaItem = song.asMediaItem
-                                        binder?.stopRadio()
-                                        binder?.player?.forcePlay(mediaItem)
-                                        binder?.setupRadio(
-                                            NavigationEndpoint.Endpoint.Watch(videoId = mediaItem.mediaId)
-                                        )
-                                    }
-                                )
-                                .padding(endPaddingValues),
-                            isPlaying = playing && currentMediaId == song.key
-                        )
+                                    )
+                                    .padding(endPaddingValues),
+                                // Replaced .key with .id (which is the videoId)
+                                isPlaying = playing && currentMediaId == song.id
+                            )
+                        }
                     }
                 }
 
-                artist.albums?.let { albums ->
+                albumsSection?.let { section ->
                     Row(
                         verticalAlignment = Alignment.Bottom,
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -183,7 +171,7 @@ fun ArtistOverview(
                             modifier = sectionTextModifier
                         )
 
-                        artist.albumsEndpoint?.let {
+                        section.moreEndpoint?.let {
                             BasicText(
                                 text = stringResource(R.string.view_all),
                                 style = typography.xs.secondary,
@@ -197,22 +185,25 @@ fun ArtistOverview(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         items(
-                            items = albums,
-                            key = Innertube.AlbumItem::key
-                        ) { album ->
-                            AlbumItem(
-                                album = album,
-                                thumbnailSize = Dimensions.thumbnails.album,
-                                alternative = true,
-                                modifier = Modifier.clickable {
-                                    onAlbumClick(album.key)
-                                }
-                            )
+                            items = section.items,
+                            // Replaced Innertube.AlbumItem::key with a lambda using the correct browseId
+                            key = { (it as InnertubeAlbumItem).browseId }
+                        ) { item ->
+                            (item as? InnertubeAlbumItem)?.let { album ->
+                                AlbumItem(
+                                    album = album,
+                                    thumbnailSize = Dimensions.thumbnails.album,
+                                    alternative = true,
+                                    modifier = Modifier.clickable {
+                                        onAlbumClick(album.browseId)
+                                    }
+                                )
+                            }
                         }
                     }
                 }
 
-                artist.singles?.let { singles ->
+                singlesSection?.let { section ->
                     Row(
                         verticalAlignment = Alignment.Bottom,
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -226,7 +217,7 @@ fun ArtistOverview(
                             modifier = sectionTextModifier
                         )
 
-                        artist.singlesEndpoint?.let {
+                        section.moreEndpoint?.let {
                             BasicText(
                                 text = stringResource(R.string.view_all),
                                 style = typography.xs.secondary,
@@ -240,20 +231,23 @@ fun ArtistOverview(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         items(
-                            items = singles,
-                            key = Innertube.AlbumItem::key
-                        ) { album ->
-                            AlbumItem(
-                                album = album,
-                                thumbnailSize = Dimensions.thumbnails.album,
-                                alternative = true,
-                                modifier = Modifier.clickable(onClick = { onAlbumClick(album.key) })
-                            )
+                            items = section.items,
+                            key = { (it as InnertubeAlbumItem).browseId }
+                        ) { item ->
+                            (item as? InnertubeAlbumItem)?.let { album ->
+                                AlbumItem(
+                                    album = album,
+                                    thumbnailSize = Dimensions.thumbnails.album,
+                                    alternative = true,
+                                    modifier = Modifier.clickable(onClick = { onAlbumClick(album.browseId) })
+                                )
+                            }
                         }
                     }
                 }
 
-                artist.description?.let { description ->
+                // Description is now a direct property on ArtistPage
+                youtubeArtistPage.description?.let { description ->
                     Attribution(
                         text = description,
                         modifier = Modifier
@@ -261,12 +255,13 @@ fun ArtistOverview(
                             .padding(vertical = 16.dp, horizontal = 8.dp)
                     )
                 }
-
-                Unit
-            } ?: ArtistOverviewBodyPlaceholder()
+            } else {
+                ArtistOverviewBodyPlaceholder()
+            }
         }
 
-        youtubeArtistPage?.radioEndpoint?.let { endpoint ->
+        // Access radioEndpoint via the new 'artist' object
+        youtubeArtistPage?.artist?.radioEndpoint?.let { endpoint ->
             FloatingActionsContainerWithScrollToTop(
                 scrollState = scrollState,
                 icon = R.drawable.radio,

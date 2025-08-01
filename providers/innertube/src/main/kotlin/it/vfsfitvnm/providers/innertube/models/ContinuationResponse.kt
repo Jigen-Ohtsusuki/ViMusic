@@ -1,18 +1,20 @@
-package it.vfsfitvnm.providers.innertube.models
+package it.vfsfitvnm.providers.innertube.models.response
 
-import kotlinx.serialization.ExperimentalSerializationApi
-import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.JsonNames
+ import it.vfsfitvnm.providers.innertube.models.MusicShelfRenderer
+ import kotlinx.serialization.Serializable
 
-@OptIn(ExperimentalSerializationApi::class)
-@Serializable
-data class ContinuationResponse(
-    val continuationContents: ContinuationContents?
-) {
-    @Serializable
-    data class ContinuationContents(
-        @JsonNames("musicPlaylistShelfContinuation")
-        val musicShelfContinuation: MusicShelfRenderer?,
-        val playlistPanelContinuation: NextResponse.MusicQueueRenderer.Content.PlaylistPanelRenderer?
-    )
-}
+ @Serializable
+ data class ContinuationResponse(
+     val onResponseReceivedActions: List<ResponseAction>?,
+ ) {
+
+     @Serializable
+     data class ResponseAction(
+         val appendContinuationItemsAction: ContinuationItems?,
+     )
+
+     @Serializable
+     data class ContinuationItems(
+         val continuationItems: List<MusicShelfRenderer.Content>?,
+     )
+ }

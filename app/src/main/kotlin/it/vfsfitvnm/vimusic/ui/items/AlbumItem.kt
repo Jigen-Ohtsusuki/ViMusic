@@ -20,7 +20,7 @@ import it.vfsfitvnm.vimusic.utils.thumbnail
 import it.vfsfitvnm.core.ui.LocalAppearance
 import it.vfsfitvnm.core.ui.shimmer
 import it.vfsfitvnm.core.ui.utils.px
-import it.vfsfitvnm.providers.innertube.Innertube
+import it.vfsfitvnm.providers.innertube.models.AlbumItem as InnertubeAlbumItem
 import coil3.compose.AsyncImage
 
 @Composable
@@ -41,15 +41,15 @@ fun AlbumItem(
 
 @Composable
 fun AlbumItem(
-    album: Innertube.AlbumItem,
+    album: InnertubeAlbumItem,
     thumbnailSize: Dp,
     modifier: Modifier = Modifier,
     alternative: Boolean = false
 ) = AlbumItem(
-    thumbnailUrl = album.thumbnail?.url,
-    title = album.info?.name,
-    authors = album.authors?.joinToString("") { it.name.orEmpty() },
-    year = album.year,
+    thumbnailUrl = album.thumbnail,
+    title = album.title,
+    authors = album.artists?.joinToString("") { it.name.orEmpty() },
+    year = album.year?.toString(),
     thumbnailSize = thumbnailSize,
     alternative = alternative,
     modifier = modifier

@@ -388,6 +388,7 @@
     <string name="unknown_error">An unknown error occurred</string>
     <string name="piped_learn_more_url" translatable="false">https://github.com/TeamPiped/Piped/blob/master/README.md</string>
     <string name="lyrics_cache">Lyrics cache</string>
+    <string name="artist_has_no_songs">This artist has no songs.</string>
     <plurals name="format_reset_blacklist_description">
         <item quantity="one">Remove %1$s song from the blacklist</item>
         <item quantity="other">Remove all %1$s songs from the blacklist</item>

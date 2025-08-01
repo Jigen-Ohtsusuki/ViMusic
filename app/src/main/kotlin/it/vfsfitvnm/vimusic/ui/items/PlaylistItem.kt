@@ -44,7 +44,7 @@ import it.vfsfitvnm.core.ui.overlay
 import it.vfsfitvnm.core.ui.shimmer
 import it.vfsfitvnm.core.ui.utils.px
 import it.vfsfitvnm.core.ui.utils.roundedShape
-import it.vfsfitvnm.providers.innertube.Innertube
+import it.vfsfitvnm.providers.innertube.models.PlaylistItem as InnertubePlaylistItem
 import coil3.compose.AsyncImage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -81,7 +81,7 @@ fun PlaylistItem(
 
 @Composable
 fun PlaylistItem(
-    playlist: PlaylistPreview,
+    playlist: PlaylistPreview, // This refers to it.vfsfitvnm.vimusic.models.PlaylistPreview
     thumbnailSize: Dp,
     modifier: Modifier = Modifier,
     alternative: Boolean = false
@@ -133,15 +133,15 @@ fun PlaylistItem(
 
 @Composable
 fun PlaylistItem(
-    playlist: Innertube.PlaylistItem,
+    playlist: InnertubePlaylistItem,
     thumbnailSize: Dp,
     modifier: Modifier = Modifier,
     alternative: Boolean = false
 ) = PlaylistItem(
-    thumbnailUrl = playlist.thumbnail?.url,
-    songCount = playlist.songCount,
-    name = playlist.info?.name,
-    channelName = playlist.channel?.name,
+    thumbnailUrl = playlist.thumbnail,
+    songCount = playlist.songCountText?.filter { it.isDigit() }?.toIntOrNull(),
+    name = playlist.title,
+    channelName = playlist.author?.name,
     thumbnailSize = thumbnailSize,
     modifier = modifier,
     alternative = alternative

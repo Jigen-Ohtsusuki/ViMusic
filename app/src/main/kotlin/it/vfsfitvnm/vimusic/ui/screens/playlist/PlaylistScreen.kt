@@ -36,12 +36,8 @@ fun PlaylistScreen(
             ) { currentTabIndex ->
                 saveableStateHolder.SaveableStateProvider(key = currentTabIndex) {
                     when (currentTabIndex) {
-                        0 -> PlaylistSongList(
-                            browseId = browseId,
-                            params = params,
-                            maxDepth = maxDepth,
-                            shouldDedup = shouldDedup
-                        )
+                        0 -> PlaylistSongList(browseId = browseId)
+
                     }
                 }
             }

@@ -7,7 +7,7 @@ import it.vfsfitvnm.vimusic.R
 import it.vfsfitvnm.core.data.enums.CoilDiskCacheSize
 import it.vfsfitvnm.core.data.enums.ExoPlayerDiskCacheSize
 import it.vfsfitvnm.core.data.enums.LyricsCacheSize
-import it.vfsfitvnm.providers.innertube.Innertube
+import it.vfsfitvnm.providers.innertube.requests.RelatedPage
 import kotlin.time.Duration
 import kotlin.time.Duration.Companion.days
 import kotlin.time.Duration.Companion.hours
@@ -26,7 +26,7 @@ object DataPreferences : GlobalPreferencesHolder() {
     var quickPicksSource by enum(QuickPicksSource.Trending)
     var versionCheckPeriod by enum(VersionCheckPeriod.Off)
     var shouldCacheQuickPicks by boolean(true)
-    var cachedQuickPicks by json(Innertube.RelatedPage())
+    var cachedQuickPicks by json(RelatedPage(songs = emptyList(), albums = emptyList(), artists = emptyList(), playlists = emptyList()))
     var autoSyncPlaylists by boolean(true)
 
     enum class TopListPeriod(

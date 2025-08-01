@@ -64,9 +64,8 @@ import it.vfsfitvnm.core.ui.onOverlay
 import it.vfsfitvnm.core.ui.onOverlayShimmer
 import it.vfsfitvnm.core.ui.overlay
 import it.vfsfitvnm.core.ui.utils.dp
-import it.vfsfitvnm.providers.innertube.Innertube
-import it.vfsfitvnm.providers.innertube.models.bodies.NextBody
-import it.vfsfitvnm.providers.innertube.requests.lyrics
+import it.vfsfitvnm.providers.innertube.YouTube
+import it.vfsfitvnm.providers.innertube.models.WatchEndpoint
 import it.vfsfitvnm.providers.kugou.KuGou
 import it.vfsfitvnm.providers.lrclib.LrcLib
 import it.vfsfitvnm.providers.lrclib.LrcParser
@@ -208,7 +207,7 @@ fun Lyrics(
 
                             if (isWordSyncedJson) {
                                 val cachedWordLevelLyrics = try {
-                                    Json.decodeFromString<List<LyricLine>>(syncedText!!)
+                                    Json.decodeFromString<List<LyricLine>>(syncedText)
                                 } catch (e: Exception) {
                                     null
                                 }
@@ -257,7 +256,7 @@ fun Lyrics(
 
                             if (hasActualWords) {
                                 wordSyncedAvailable = true
-                                val nonNullWordLevelLyrics = wordLevelLyrics!!
+                                val nonNullWordLevelLyrics = wordLevelLyrics
 
                                 val jsonString = try {
                                     Json.encodeToString(nonNullWordLevelLyrics)
@@ -292,9 +291,13 @@ fun Lyrics(
                                 wordSyncedManager = manager
                             } else {
                                 wordSyncedAvailable = false
-                                val fixed = currentLyrics?.fixed ?: Innertube
-                                    .lyrics(NextBody(videoId = mediaId))
-                                    ?.getOrNull()
+                                // CORRECTED: Replaced Innertube.lyrics with a proper call chain to YouTube.lyrics.
+                                val fixed = currentLyrics?.fixed ?: run {
+                                    val lyricsEndpoint = YouTube.next(WatchEndpoint(videoId = mediaId)).getOrNull()?.lyricsEndpoint
+                                    lyricsEndpoint?.let {
+                                        YouTube.lyrics(it).getOrNull()
+                                    }
+                                }
                                 ?: LrcLib.bestLyrics(
                                     artist = artist,
                                     title = title,
@@ -747,7 +750,7 @@ fun Lyrics(
                             }
                         }
                     )
-                    .padding(all = 8.dp)
+                    .padding(all = 4.dp)
                     .size(20.dp)
                     .align(Alignment.BottomEnd)
             )

@@ -1,29 +1,16 @@
 package it.vfsfitvnm.vimusic.ui.screens.localplaylist
 
+import android.content.Intent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsetsSides
-import androidx.compose.foundation.layout.asPaddingValues
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.only
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.LookaheadScope
@@ -31,6 +18,17 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.core.net.toUri
+import androidx.media3.common.MediaItem
+import androidx.media3.common.MediaMetadata
+import it.vfsfitvnm.compose.reordering.animateItemPlacement
+import it.vfsfitvnm.compose.reordering.draggedItem
+import it.vfsfitvnm.compose.reordering.rememberReorderingState
+import it.vfsfitvnm.core.ui.Dimensions
+import it.vfsfitvnm.core.ui.LocalAppearance
+import it.vfsfitvnm.core.ui.utils.isLandscape
+import it.vfsfitvnm.providers.innertube.YouTube
+import it.vfsfitvnm.providers.innertube.models.SongItem as InnertubeSongItem
 import it.vfsfitvnm.vimusic.Database
 import it.vfsfitvnm.vimusic.LocalPlayerAwareWindowInsets
 import it.vfsfitvnm.vimusic.LocalPlayerServiceBinder
@@ -42,37 +40,9 @@ import it.vfsfitvnm.vimusic.preferences.DataPreferences
 import it.vfsfitvnm.vimusic.query
 import it.vfsfitvnm.vimusic.transaction
 import it.vfsfitvnm.vimusic.ui.components.LocalMenuState
-import it.vfsfitvnm.vimusic.ui.components.themed.CircularProgressIndicator
-import it.vfsfitvnm.vimusic.ui.components.themed.ConfirmationDialog
-import it.vfsfitvnm.vimusic.ui.components.themed.FloatingActionsContainerWithScrollToTop
-import it.vfsfitvnm.vimusic.ui.components.themed.Header
-import it.vfsfitvnm.vimusic.ui.components.themed.HeaderIconButton
-import it.vfsfitvnm.vimusic.ui.components.themed.InPlaylistMediaItemMenu
-import it.vfsfitvnm.vimusic.ui.components.themed.LayoutWithAdaptiveThumbnail
-import it.vfsfitvnm.vimusic.ui.components.themed.Menu
-import it.vfsfitvnm.vimusic.ui.components.themed.MenuEntry
-import it.vfsfitvnm.vimusic.ui.components.themed.ReorderHandle
-import it.vfsfitvnm.vimusic.ui.components.themed.SecondaryTextButton
-import it.vfsfitvnm.vimusic.ui.components.themed.TextFieldDialog
+import it.vfsfitvnm.vimusic.ui.components.themed.*
 import it.vfsfitvnm.vimusic.ui.items.SongItem
-import it.vfsfitvnm.vimusic.utils.PlaylistDownloadIcon
-import it.vfsfitvnm.vimusic.utils.asMediaItem
-import it.vfsfitvnm.vimusic.utils.completed
-import it.vfsfitvnm.vimusic.utils.enqueue
-import it.vfsfitvnm.vimusic.utils.forcePlayAtIndex
-import it.vfsfitvnm.vimusic.utils.forcePlayFromBeginning
-import it.vfsfitvnm.vimusic.utils.launchYouTubeMusic
-import it.vfsfitvnm.vimusic.utils.playingSong
-import it.vfsfitvnm.vimusic.utils.toast
-import it.vfsfitvnm.compose.reordering.animateItemPlacement
-import it.vfsfitvnm.compose.reordering.draggedItem
-import it.vfsfitvnm.compose.reordering.rememberReorderingState
-import it.vfsfitvnm.core.ui.Dimensions
-import it.vfsfitvnm.core.ui.LocalAppearance
-import it.vfsfitvnm.core.ui.utils.isLandscape
-import it.vfsfitvnm.providers.innertube.Innertube
-import it.vfsfitvnm.providers.innertube.models.bodies.BrowseBody
-import it.vfsfitvnm.providers.innertube.requests.playlistPage
+import it.vfsfitvnm.vimusic.utils.*
 import kotlinx.collections.immutable.ImmutableList
 import kotlinx.collections.immutable.toImmutableList
 import kotlinx.coroutines.CancellationException
@@ -172,7 +142,7 @@ fun LocalPlaylistSongs(
                                 text = stringResource(R.string.enqueue),
                                 enabled = songs.isNotEmpty(),
                                 onClick = {
-                                    binder?.player?.enqueue(songs.map { it.asMediaItem })
+                                    binder?.player?.enqueue(songs.map { it.asLocalMediaItem() })
                                 }
                             )
 
@@ -183,7 +153,7 @@ fun LocalPlaylistSongs(
                             }
 
                             PlaylistDownloadIcon(
-                                songs = songs.map { it.asMediaItem }.toImmutableList()
+                                songs = songs.map { it.asLocalMediaItem() }.toImmutableList()
                             )
 
                             HeaderIconButton(
@@ -291,7 +261,7 @@ fun LocalPlaylistSongs(
                                 onClick = {
                                     binder?.stopRadio()
                                     binder?.player?.forcePlayAtIndex(
-                                        items = songs.map { it.asMediaItem },
+                                        items = songs.map { it.asLocalMediaItem() },
                                         index = index
                                     )
                                 }
@@ -326,7 +296,7 @@ fun LocalPlaylistSongs(
 
                 binder?.stopRadio()
                 binder?.player?.forcePlayFromBeginning(
-                    songs.shuffled().map { it.asMediaItem }
+                    songs.shuffled().map { it.asLocalMediaItem() }
                 )
             }
         )
@@ -337,27 +307,48 @@ private suspend fun sync(
     playlist: Playlist,
     browseId: String
 ) = runCatching {
-    Innertube.playlistPage(
-        BrowseBody(browseId = browseId)
-    )?.completed()?.getOrNull()?.let { remotePlaylist ->
+    YouTube.playlist(browseId).getOrNull()?.let { remotePlaylist ->
         transaction {
             Database.instance.clearPlaylist(playlist.id)
 
-            remotePlaylist.songsPage
-                ?.items
-                ?.map { it.asMediaItem }
-                ?.onEach { Database.instance.insert(it) }
-                ?.mapIndexed { position, mediaItem ->
+            val songPlaylistMaps = remotePlaylist.songs
+                .map { it.toLocalSong() }
+                .onEach { song -> Database.instance.insert(song) }
+                .mapIndexed { position, localSong ->
                     SongPlaylistMap(
-                        songId = mediaItem.mediaId,
+                        songId = localSong.id,
                         playlistId = playlist.id,
                         position = position
                     )
                 }
-                ?.let(Database.instance::insertSongPlaylistMaps)
+            Database.instance.insertSongPlaylistMaps(songPlaylistMaps)
         }
     }
 }.onFailure {
     if (it is CancellationException) throw it
     it.printStackTrace()
+}
+
+private fun InnertubeSongItem.toLocalSong(): Song {
+    return Song(
+        id = id,
+        title = title,
+        artistsText = artists.joinToString { it.name },
+        durationText = duration?.let { formatAsDuration(it.toLong()) } ?: "0:00",
+        thumbnailUrl = thumbnail,
+        explicit = explicit
+    )
+}
+
+private fun Song.asLocalMediaItem(): MediaItem {
+    return MediaItem.Builder()
+        .setMediaId(id)
+        .setMediaMetadata(
+            MediaMetadata.Builder()
+                .setTitle(title)
+                .setArtist(artistsText)
+                .setArtworkUri(thumbnailUrl?.toUri())
+                .build()
+        )
+        .build()
 }

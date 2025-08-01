@@ -3,7 +3,7 @@ package it.vfsfitvnm.vimusic.models
 import android.os.Parcelable
 import androidx.compose.ui.graphics.Color
 import it.vfsfitvnm.core.ui.ColorParceler
-import it.vfsfitvnm.providers.innertube.Innertube
+import it.vfsfitvnm.providers.innertube.requests.MoodAndGenres
 import kotlinx.parcelize.Parcelize
 import kotlinx.parcelize.WriteWith
 
@@ -15,9 +15,9 @@ data class Mood(
     val params: String?
 ) : Parcelable
 
-fun Innertube.Mood.Item.toUiMood() = Mood(
+fun MoodAndGenres.Item.toUiMood() = Mood(
     name = title,
-    color = Color(stripeColor),
+    color = Color(stripeColor.toInt()),
     browseId = endpoint.browseId,
     params = endpoint.params
 )

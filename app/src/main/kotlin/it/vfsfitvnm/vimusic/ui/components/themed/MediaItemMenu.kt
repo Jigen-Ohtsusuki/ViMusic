@@ -163,7 +163,7 @@ fun NonQueuedMediaItemMenu(
             binder?.stopRadio()
             binder?.player?.forcePlay(mediaItem)
             binder?.setupRadio(
-                NavigationEndpoint.Endpoint.Watch(
+                it.vfsfitvnm.providers.innertube.models.WatchEndpoint(
                     videoId = mediaItem.mediaId,
                     playlistId = mediaItem.mediaMetadata.extras?.getString("playlistId")
                 )

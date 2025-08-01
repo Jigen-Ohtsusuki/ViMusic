@@ -2,29 +2,23 @@ package it.vfsfitvnm.vimusic.ui.screens.home
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
+import it.vfsfitvnm.compose.persist.PersistMapCleanup
+import it.vfsfitvnm.compose.routing.Route0
+import it.vfsfitvnm.compose.routing.RouteHandler
+import it.vfsfitvnm.providers.innertube.models.AlbumItem
+import it.vfsfitvnm.providers.innertube.models.ArtistItem
+import it.vfsfitvnm.providers.innertube.models.PlaylistItem
+import it.vfsfitvnm.providers.innertube.requests.MoodAndGenres
 import it.vfsfitvnm.vimusic.R
 import it.vfsfitvnm.vimusic.models.toUiMood
 import it.vfsfitvnm.vimusic.preferences.UIStatePreferences
 import it.vfsfitvnm.vimusic.ui.components.themed.Scaffold
-import it.vfsfitvnm.vimusic.ui.screens.GlobalRoutes
-import it.vfsfitvnm.vimusic.ui.screens.Route
-import it.vfsfitvnm.vimusic.ui.screens.albumRoute
-import it.vfsfitvnm.vimusic.ui.screens.artistRoute
-import it.vfsfitvnm.vimusic.ui.screens.builtInPlaylistRoute
+import it.vfsfitvnm.vimusic.ui.screens.*
 import it.vfsfitvnm.vimusic.ui.screens.builtinplaylist.BuiltInPlaylistScreen
-import it.vfsfitvnm.vimusic.ui.screens.localPlaylistRoute
 import it.vfsfitvnm.vimusic.ui.screens.localplaylist.LocalPlaylistScreen
 import it.vfsfitvnm.vimusic.ui.screens.mood.MoodScreen
 import it.vfsfitvnm.vimusic.ui.screens.mood.MoreAlbumsScreen
 import it.vfsfitvnm.vimusic.ui.screens.mood.MoreMoodsScreen
-import it.vfsfitvnm.vimusic.ui.screens.moodRoute
-import it.vfsfitvnm.vimusic.ui.screens.pipedPlaylistRoute
-import it.vfsfitvnm.vimusic.ui.screens.playlistRoute
-import it.vfsfitvnm.vimusic.ui.screens.searchRoute
-import it.vfsfitvnm.vimusic.ui.screens.settingsRoute
-import it.vfsfitvnm.compose.persist.PersistMapCleanup
-import it.vfsfitvnm.compose.routing.Route0
-import it.vfsfitvnm.compose.routing.RouteHandler
 
 private val moreMoodsRoute = Route0("moreMoodsRoute")
 private val moreAlbumsRoute = Route0("moreAlbumsRoute")
@@ -80,26 +74,26 @@ fun HomeScreen() {
                     val onSearchClick = { searchRoute("") }
                     when (currentTabIndex) {
                         0 -> QuickPicks(
-                            onAlbumClick = { albumRoute(it.key) },
-                            onArtistClick = { artistRoute(it.key) },
-                            onPlaylistClick = {
+                            onAlbumClick = { album: AlbumItem -> albumRoute(album.browseId) },
+                            onArtistClick = { artist: ArtistItem -> artistRoute(artist.id) },
+                            onPlaylistClick = { playlist: PlaylistItem ->
+                                // Correctly calling playlistRoute with all four arguments.
                                 playlistRoute(
-                                    p0 = it.key,
+                                    p0 = playlist.id,
                                     p1 = null,
                                     p2 = null,
-                                    p3 = it.channel?.name == "YouTube Music"
+                                    p3 = playlist.author?.name == "YouTube Music"
                                 )
                             },
                             onSearchClick = onSearchClick
                         )
 
                         1 -> HomeDiscovery(
-                            onMoodClick = { mood -> moodRoute(mood.toUiMood()) },
-                            onNewReleaseAlbumClick = { albumRoute(it) },
+                            onMoodClick = { mood: MoodAndGenres.Item -> moodRoute(mood.toUiMood()) },
+                            onNewReleaseAlbumClick = { albumId -> albumRoute(albumId) },
                             onSearchClick = onSearchClick,
                             onMoreMoodsClick = { moreMoodsRoute() },
-                            onMoreAlbumsClick = { moreAlbumsRoute() },
-                            onPlaylistClick = { playlistRoute(it, null, null, true) }
+                            onMoreAlbumsClick = { moreAlbumsRoute() }
                         )
 
                         2 -> HomeSongs(

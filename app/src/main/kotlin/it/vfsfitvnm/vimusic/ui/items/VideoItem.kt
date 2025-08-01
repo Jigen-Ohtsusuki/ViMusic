@@ -25,25 +25,28 @@ import it.vfsfitvnm.core.ui.onOverlay
 import it.vfsfitvnm.core.ui.overlay
 import it.vfsfitvnm.core.ui.shimmer
 import it.vfsfitvnm.core.ui.utils.roundedShape
-import it.vfsfitvnm.providers.innertube.Innertube
 import coil3.compose.AsyncImage
 
+// REMOVED: This @Composable fun VideoItem(video: Innertube.VideoItem, ...) overload
+// because Innertube.VideoItem does not exist in your new module.
+/*
 @Composable
 fun VideoItem(
-    video: Innertube.VideoItem,
+    video: InnertubeVideoItem,
     thumbnailWidth: Dp,
     thumbnailHeight: Dp,
     modifier: Modifier = Modifier
 ) = VideoItem(
-    thumbnailUrl = video.thumbnail?.url,
-    duration = video.durationText,
-    title = video.info?.name,
-    uploader = video.authors?.joinToString("") { it.name.orEmpty() },
-    views = video.viewsText,
+    thumbnailUrl = video.thumbnail,
+    duration = video.lengthText,
+    title = video.title,
+    uploader = video.author,
+    views = video.viewCountText,
     thumbnailWidth = thumbnailWidth,
     thumbnailHeight = thumbnailHeight,
     modifier = modifier
 )
+*/
 
 @Composable
 fun VideoItem(

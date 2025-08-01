@@ -399,4 +399,5 @@
     <string name="import_initializing">Importvorgang wird initialisiert …</string>
     <string name="unknown_error">Es ist ein unbekannter Fehler aufgetreten</string>
     <string name="lyrics_cache">Liedtext-Cache</string>
+    <string name="artist_has_no_songs">Dieser Künstler hat keine Lieder.</string>
 </resources>
